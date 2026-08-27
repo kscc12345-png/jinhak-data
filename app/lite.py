@@ -307,6 +307,24 @@ class Lite(ctk.CTk):
                       width=120, font=("Malgun Gothic", 13)).pack(pady=8)
         ent.bind("<Return>", submit); ent.focus()
 
+    def _toggle_drawer(self):
+        if self.drawer_open:
+            self.drawer.place_forget()
+            self.drawer_open = False
+        else:
+            self.drawer.place(relx=0, rely=0, relheight=1)
+            self.drawer.lift()
+            self.drawer_open = True
+            
+    def _on_app_click(self, event):
+        if hasattr(self, "drawer_open") and self.drawer_open:
+            w = event.widget
+            while w:
+                if w == self.drawer or w == getattr(self, "toggle_btn", None):
+                    return
+                w = getattr(w, "master", None)
+            self._toggle_drawer()
+
     def _card(self, parent, **kw):
         return ctk.CTkFrame(parent, fg_color=C["card"], corner_radius=16,
                             border_width=1, border_color=C["line"], **kw)
@@ -348,9 +366,12 @@ class Lite(ctk.CTk):
         ctk.CTkButton(fs, text="가－", width=44, height=28, font=("Malgun Gothic", 12),
             fg_color=C["card2"], hover_color=C["line"],
             command=lambda: self._apply_font_scale(-0.1)).pack(side="left", padx=2)
-        ctk.CTkButton(fs, text="가＋", width=44, height=28, font=("Malgun Gothic", 13, "bold"),
+        ctk.CTkButton(fs, text="+", width=44, height=28, font=("Malgun Gothic", 13, "bold"),
             fg_color=C["card2"], hover_color=C["line"],
             command=lambda: self._apply_font_scale(0.1)).pack(side="left", padx=2)
+            
+        self.toggle_btn = ctk.CTkButton(head, text="☰ 성적 입력 및 설정", width=140, font=("Malgun Gothic", 12, "bold"), fg_color=C["card2"], hover_color=C["line"], text_color=C["text"], command=self._toggle_drawer)
+        self.toggle_btn.pack(side="left", padx=12)
         ctk.CTkButton(head, text="✉️ 없는 대학 요청", font=("Malgun Gothic", 12),
                       fg_color=C["card2"], hover_color=C["line"], width=140,
                       command=self._request).pack(side="right")
@@ -358,22 +379,27 @@ class Lite(ctk.CTk):
                       fg_color=C["blue"], hover_color=C["blue"], width=150,
                       command=self._update).pack(side="right", padx=8)
 
-        self.paned = tk.PanedWindow(self, orient="horizontal", bg=C["bg"], sashwidth=6, bd=0)
-        self.paned.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=18, pady=8)
+        # main container
+        self.right = ctk.CTkFrame(self, fg_color="transparent")
+        self.right.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=18, pady=8)
 
-        left_container = ctk.CTkFrame(self.paned, fg_color="transparent")
-        self.paned.add(left_container, minsize=380, width=420)
-        self.left = ctk.CTkScrollableFrame(left_container, fg_color="transparent")
-        self.left.pack(fill="both", expand=True)
+        # drawer overlay
+        self.drawer_open = False
+        self.drawer = ctk.CTkFrame(self.right, fg_color=C["bg"], corner_radius=12, border_width=1, border_color=C["line"], width=460)
+        self.drawer.pack_propagate(False)
+        dh = ctk.CTkFrame(self.drawer, fg_color="transparent"); dh.pack(fill="x", padx=20, pady=(16, 8))
+        ctk.CTkLabel(dh, text="성적 입력 및 설정", font=("Malgun Gothic", 18, "bold"), text_color=C["text"]).pack(side="left")
+        ctk.CTkButton(dh, text="✕ 닫기", width=60, fg_color=C["card2"], hover_color=C["line"], text_color=C["text"], command=self._toggle_drawer).pack(side="right")
+        self.left = ctk.CTkScrollableFrame(self.drawer, fg_color="transparent")
+        self.left.pack(fill="both", expand=True, padx=4, pady=4)
         self._build_inputs(self.left)
-        self.right = ctk.CTkFrame(self.paned, fg_color="transparent")
-        self.paned.add(self.right)
         self.right.grid_columnconfigure(0, weight=1)
         self.right.grid_rowconfigure(3, weight=1)
         self._build_stats(self.right)
         self._build_chart(self.right)
         self._build_filters(self.right)
         self._build_table(self.right)
+        self.bind_all("<Button-1>", self._on_app_click, add="+")
         # 하단 배너
         self.banner = ctk.CTkFrame(self, fg_color=C["card2"], corner_radius=0, height=62)
         self.banner.grid(row=2, column=0, columnspan=2, sticky="ew")
