@@ -921,10 +921,10 @@ class Lite(ctk.CTk):
         self.year_var = ctk.StringVar(value=(yv[1] if len(yv) > 1 else "전체"))
         ctk.CTkLabel(top, text="학년도", font=("Malgun Gothic", 12),
                      text_color=C["muted"]).pack(side="left", padx=(0, 6))
-        self.year_seg = ctk.CTkSegmentedButton(top, values=yv, variable=self.year_var,
+        self.year_filter_seg = ctk.CTkSegmentedButton(top, values=yv, variable=self.year_var,
             command=lambda _=None: self.recompute(), selected_color=C["purple"],
             fg_color=C["card2"], font=("Malgun Gothic", 12))
-        self.year_seg.pack(side="left")
+        self.year_filter_seg.pack(side="left")
         self.adm_var = ctk.StringVar(value="전체")
         ctk.CTkLabel(top, text="구분", font=("Malgun Gothic", 12),
                      text_color=C["muted"]).pack(side="left", padx=(16, 6))
