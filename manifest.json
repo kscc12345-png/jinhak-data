@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27 20:33",
+  "generated": "2026-08-28 08:33",
   "app_version": "5f7f99eaffe6",
   "app_modules": [
     "assemble.py",
@@ -102,7 +102,7 @@
       "code": "paichai",
       "name": "배재대학교",
       "year": 2027,
-      "units": 3
+      "units": 79
     },
     {
       "code": "snu",
