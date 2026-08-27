@@ -454,7 +454,6 @@ class Lite(ctk.CTk):
                                       wraplength=300, justify="left")
         self.five_note.pack(anchor="w", padx=16, pady=(0, 0))
         grid = ctk.CTkFrame(c, fg_color="transparent"); grid.pack(fill="x", padx=16, pady=(8, 4))
-        
         h_row = ctk.CTkFrame(grid, fg_color="transparent"); h_row.pack(fill="x", pady=(0,4))
         ctk.CTkLabel(h_row, text="과목", width=64, font=(FONT, 11), text_color=C["muted"]).pack(side="left")
         ctk.CTkLabel(h_row, text="등급", width=48, font=(FONT, 11), text_color=C["muted"]).pack(side="left", padx=3)
@@ -470,7 +469,6 @@ class Lite(ctk.CTk):
             er = self._mini_entry(row, 48, ph="점수"); er.pack(side="left", padx=3); self.raw_entries[id(subj)] = er
             eu = self._mini_entry(row, 48, ph="시수"); eu.pack(side="left", padx=3); self.unit_entries[id(subj)] = eu
             for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self.recompute())
-        
         self.elec_frame = ctk.CTkFrame(c, fg_color="transparent")
         self.elec_frame.pack(fill="x", padx=16, pady=(2, 4))
         self._rebuild_electives()
@@ -487,7 +485,7 @@ class Lite(ctk.CTk):
         self.weight_note.pack(anchor="w", padx=16, pady=(0, 12))
         self._load_year_entries("1-1")
 
-        
+
         c = self._section(p, "📝", "수능(모의) 등급", C["purple"], "탐구는 선택과목별로 추가")
         self.tamgu_note = ctk.CTkLabel(c, text="", font=(FONT, 11), text_color=C["orange"])
         self.tamgu_note.pack(anchor="w", padx=16, pady=(0, 2))
@@ -526,10 +524,286 @@ class Lite(ctk.CTk):
             e.bind("<KeyRelease>", lambda _=None: self.recompute())
             self.baekbunwi_entries[a] = e
 
-    def _collect_student(self):
+    def _on_curriculum_change(self, val):
+        if val == "2022 개정":
+            self.math_menu.configure(values=["공통(선택없음)"])
+            self.math_var.set("공통(선택없음)")
+            self.tamgu_note.configure(text="* 2022 개정: 통합사회/통합과학 공통")
+            self.tamgu = [{"name": "통합사회", "g": "3", "pct": ""}, {"name": "통합과학", "g": "3", "pct": ""}]
+        else:
+            self.math_menu.configure(values=["미적분", "기하", "확률과통계"])
+            if self.math_var.get() not in ["미적분", "기하", "확률과통계"]:
+                self.math_var.set("미적분")
+            self.tamgu_note.configure(text="")
+        self._rebuild_tamgu()
+        self.recompute()
 
+    def _rebuild_electives(self):
+        for w in self.elec_frame.winfo_children(): w.destroy()
+        yr = self.active_semester if hasattr(self, 'active_semester') else (self.active_year if hasattr(self, 'active_year') else '1')
+        for subj in [s for s in self.subjects if not s["fixed"]]:
+            row = ctk.CTkFrame(self.elec_frame, fg_color=C["card2"], corner_radius=8); row.pack(fill="x", pady=2)
+            ne = ctk.CTkEntry(row, width=54, fg_color=C["card"], border_color=C["line"], font=(FONT, 12))
+            ne.insert(0, subj["name"]); ne.pack(side="left", padx=(8,0), pady=4)
+            ne.bind("<KeyRelease>", lambda _=None, s=subj, w=ne: (s.update(name=w.get()), self.recompute()))
+            
+            eg = self._mini_entry(row, 44, ph="등급"); eg.pack(side="left", padx=3); self.grade_entries[id(subj)] = eg
+            ea = self._mini_entry(row, 44, ph="A/B"); ea.pack(side="left", padx=3); self.ach_entries[id(subj)] = ea
+            er = self._mini_entry(row, 44, ph="점수"); er.pack(side="left", padx=3); self.raw_entries[id(subj)] = er
+            eu = self._mini_entry(row, 44, ph="시수"); eu.pack(side="left", padx=3); self.unit_entries[id(subj)] = eu
+            for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self.recompute())
+            
+            ctk.CTkButton(row, text="✕", width=24, height=24, fg_color=C["card"], hover_color=C["red"], font=(FONT, 11), text_color=C["muted"], command=lambda s=subj: self._remove_subject(s)).pack(side="right", padx=6)
+        
+        add = ctk.CTkFrame(self.elec_frame, fg_color="transparent"); add.pack(fill="x", pady=(4, 2))
+        ctk.CTkButton(add, text="＋ 일반", width=90, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["blue"], command=lambda: self._add_subject("일반")).pack(side="left", padx=(0, 6))
+        
+        self._load_year_entries(yr)
+        
+    def _add_subject(self, kind):
         self._save_year_entries(self.active_semester)
-        self._save_jinro()
+        n = sum(1 for s in self.subjects if s.get("kind") == kind)
+        self.subjects.append({"name": f"{kind}{n+1}", "fixed": False, "kind": kind,
+                              "year": {"1-1": 3.0, "1-2": 3.0, "2-1": 3.0, "2-2": 3.0, "3-1": 3.0, "3-2": 3.0},
+                              "units": {"1-1": 3, "1-2": 3, "2-1": 3, "2-2": 3, "3-1": 3, "3-2": 3}})
+        self._rebuild_electives(); self.recompute()
+
+    def _remove_subject(self, subj):
+        self._save_year_entries(self.active_semester)
+        self.subjects = [s for s in self.subjects if s is not subj]
+        self.year_entries.pop(id(subj), None)
+        self._rebuild_electives(); self.recompute()
+
+    def _rebuild_tamgu(self):
+        for w in self.tamgu_frame.winfo_children():
+            w.destroy()
+        self.tamgu_widgets = []
+        is_2022 = (getattr(self, "curriculum_var", None) and self.curriculum_var.get() == "2022 개정")
+        for t in self.tamgu:
+            row = ctk.CTkFrame(self.tamgu_frame, fg_color=C["card2"], corner_radius=8)
+            row.pack(fill="x", pady=2)
+            ne = ctk.CTkEntry(row, width=100, fg_color=C["card"], border_color=C["line"],
+                              font=(FONT, 12)); ne.insert(0, t["name"])
+            if is_2022: ne.configure(state="disabled")
+            ne.pack(side="left", padx=(8, 4), pady=5)
+            ne.bind("<KeyRelease>", lambda _=None, tt=t, w=ne: (tt.update(name=w.get()),
+                                                                self.recompute()))
+            ctk.CTkLabel(row, text="등급", font=(FONT, 10), text_color=C["muted"]).pack(side="left")
+            ge = self._mini_entry(row, 40); ge.insert(0, t["g"]); ge.pack(side="left", padx=3)
+            ge.bind("<KeyRelease>", lambda _=None: self.recompute())
+            ctk.CTkLabel(row, text="백분위", font=(FONT, 10), text_color=C["muted"]).pack(side="left")
+            pe = self._mini_entry(row, 48, "0~100"); pe.insert(0, t.get("pct", ""))
+            pe.pack(side="left", padx=3); pe.bind("<KeyRelease>", lambda _=None: self.recompute())
+            self.tamgu_widgets.append((t, ne, ge, pe))
+            if not is_2022:
+                ctk.CTkButton(row, text="✕", width=24, height=24, fg_color=C["card"],
+                    hover_color=C["red"], font=(FONT, 11), text_color=C["muted"],
+                    command=lambda tt=t: self._remove_tamgu(tt)).pack(side="right", padx=6)
+        if not is_2022:
+            ctk.CTkButton(self.tamgu_frame, text="＋ 탐구 과목 추가", height=26, font=(FONT, 11),
+                fg_color=C["card2"], hover_color=C["purple"],
+                command=self._add_tamgu).pack(fill="x", pady=(4, 0))
+
+    def _save_tamgu(self):
+        for t, ne, ge, pe in getattr(self, "tamgu_widgets", []):
+            t["name"] = ne.get(); t["g"] = ge.get(); t["pct"] = pe.get()
+
+    def _add_tamgu(self):
+        self._save_tamgu()
+        self.tamgu.append({"name": f"탐구{len(self.tamgu)+1}", "g": "", "pct": ""})
+        self._rebuild_tamgu(); self.recompute()
+
+    def _remove_tamgu(self, t):
+        self._save_tamgu()
+        self.tamgu = [x for x in self.tamgu if x is not t]
+        self._rebuild_tamgu(); self.recompute()
+
+    def _load_year_entries(self, yr):
+        for subj in self.subjects:
+            sid = id(subj)
+            if sid in self.grade_entries: self.grade_entries[sid].delete(0, "end"); self.grade_entries[sid].insert(0, str(subj["grade"].get(yr, "")))
+            if sid in self.ach_entries: self.ach_entries[sid].delete(0, "end"); self.ach_entries[sid].insert(0, str(subj["ach"].get(yr, "")))
+            if sid in self.raw_entries: self.raw_entries[sid].delete(0, "end"); self.raw_entries[sid].insert(0, str(subj["raw"].get(yr, "")))
+            if sid in self.unit_entries: self.unit_entries[sid].delete(0, "end"); self.unit_entries[sid].insert(0, str(subj["unit"].get(yr, "")))
+
+    def _save_year_entries(self, yr):
+        for subj in self.subjects:
+            sid = id(subj)
+            if sid in self.grade_entries: subj["grade"][yr] = self.grade_entries[sid].get().strip()
+            if sid in self.ach_entries: subj["ach"][yr] = self.ach_entries[sid].get().strip().upper()
+            if sid in self.raw_entries: subj["raw"][yr] = self.raw_entries[sid].get().strip()
+            if sid in self.unit_entries: subj["unit"][yr] = self.unit_entries[sid].get().strip()
+
+    def _switch_year(self, val):
+        self._save_year_entries(self.active_semester)
+        y = {"1학년": "1", "2학년": "2", "3학년": "3"}[val]
+        s = self.sem_seg.get().replace("학기", "")
+        self.active_semester = f"{y}-{s}"
+        self._load_year_entries(self.active_semester)
+        self._rebuild_electives()
+
+    def _switch_semester(self, val):
+        self._save_year_entries(self.active_semester)
+        y = {"1학년": "1", "2학년": "2", "3학년": "3"}[self.year_seg.get()]
+        s = val.replace("학기", "")
+        self.active_semester = f"{y}-{s}"
+        self._load_year_entries(self.active_semester)
+        self._rebuild_electives()
+
+    def _on_year_active(self):
+        for y, v in self.year_off_vars.items():
+            self.year_active[y] = not v.get()
+        self.recompute()
+
+    def _on_five_scale(self):
+        on = self.five_var.get()
+        self.five_note.configure(
+            text=("⚠ 위 수치는 근사값입니다. 참고용으로만 활용하시고, 정확한 값을 "
+                  "원하면 다른 프로그램을 이용하세요.") if on else "")
+        self.recompute()
+
+    def _apply_font_scale(self, delta):
+        self.font_scale = max(0.8, min(1.6, round(self.font_scale + delta, 2)))
+        try:
+            ctk.set_widget_scaling(self.font_scale)
+        except Exception:
+            pass
+
+    def _on_weight(self):
+        for y, e in self.weight_entries.items():
+            try: self.student["weights"][y] = max(0.0, float(e.get()))
+            except ValueError: pass
+        self.recompute()
+
+    def _on_univ_change(self, *_):
+        uv = self.univ_var.get()
+        if uv != "전체 대학":
+            u = next((d for d in self.univs.values() if d["name"] == uv), None)
+            gw = (u or {}).get("grade_weights")
+            if gw and gw.get("weights"):
+                w = gw["weights"]
+                for y in ["1", "2", "3"]:
+                    self.student["weights"][y] = float(w.get(y, 1))
+                    self.weight_entries[y].delete(0, "end")
+                    self.weight_entries[y].insert(0, str(int(float(w.get(y, 1)))))
+                w_str = " ".join(f"{y}학년:{int(float(w.get(y, 1)))}%" for y in ["1", "2", "3"])
+                self.weight_note.configure(
+                    text=f"✓ '{uv}' 반영비율 자동적용: {w_str}", text_color=C["green"])
+            else:
+                self.weight_note.configure(text="학년비중 정보 미검출 — 수동 입력",
+                                           text_color=C["muted"])
+        else:
+            self.weight_note.configure(text="")
+        self.recompute()
+
+    # ---------- 스탯/차트/필터/표 ----------
+    def _build_stats(self, p):
+        self.stats = ctk.CTkFrame(p, fg_color="transparent")
+        self.stats.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        for i in range(3):
+            self.stats.grid_columnconfigure(i, weight=1)
+        self.stat_labels = {}
+        for i, (k, col) in enumerate([("대학", C["blue"]), ("모집단위", C["purple"]),
+                                      ("지원가능", C["green"])]):
+            card = self._card(self.stats); card.grid(row=0, column=i, sticky="ew", padx=6)
+            ctk.CTkLabel(card, text=k, font=("Malgun Gothic", 12), text_color=C["muted"]
+                         ).pack(anchor="w", padx=16, pady=(12, 0))
+            v = ctk.CTkLabel(card, text="-", font=("Malgun Gothic", 24, "bold"), text_color=col)
+            v.pack(anchor="w", padx=16, pady=(0, 12)); self.stat_labels[k] = v
+
+    def _build_chart(self, p):
+        card = self._card(p); card.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        ctk.CTkLabel(card, text="합격 가능성 밴드 분포", font=("Malgun Gothic", 13, "bold"),
+                     text_color=C["muted"]).pack(anchor="w", padx=18, pady=(12, 2))
+        self.canvas = tk.Canvas(card, height=150, bg=C["card"], highlightthickness=0)
+        self.canvas.pack(fill="x", padx=16, pady=(0, 12))
+
+    def _draw_chart(self):
+        cv = self.canvas; cv.delete("all"); cv.update_idletasks()
+        W = cv.winfo_width() or 800
+        cnt = {}
+        for r in self.results:
+            cnt[r["band"]] = cnt.get(r["band"], 0) + 1
+        order = [b for b in BAND_ORDER if b in cnt]
+        if not order:
+            return
+        mx = max(cnt[b] for b in order)
+        y, bh, gap = 6, 20, 8
+        for b in order:
+            w = int((W - 120) * cnt[b] / mx) if mx else 0
+            cv.create_text(56, y + bh / 2, text=b, fill=C["muted"], anchor="e",
+                           font=("Malgun Gothic", 10))
+            cv.create_rectangle(64, y, 64 + w, y + bh, fill=BAND_COLOR.get(b, C["gray"]),
+                                outline="")
+            cv.create_text(64 + w + 8, y + bh / 2, text=str(cnt[b]), fill=C["text"],
+                           anchor="w", font=("Malgun Gothic", 10))
+            y += bh + gap
+        cv.configure(height=y + 4)
+
+    def _build_filters(self, p):
+        bar = self._card(p); bar.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        top = ctk.CTkFrame(bar, fg_color="transparent"); top.pack(fill="x", padx=14, pady=(12, 0))
+        years = sorted({u.get("year") for u in self.univs.values() if u.get("year")}, reverse=True)
+        yv = ["전체"] + [f"{y}학년도" for y in years]
+        self.year_var = ctk.StringVar(value=(yv[1] if len(yv) > 1 else "전체"))
+        ctk.CTkLabel(top, text="학년도", font=("Malgun Gothic", 12),
+                     text_color=C["muted"]).pack(side="left", padx=(0, 6))
+        self.year_seg = ctk.CTkSegmentedButton(top, values=yv, variable=self.year_var,
+            command=lambda _=None: self.recompute(), selected_color=C["purple"],
+            fg_color=C["card2"], font=("Malgun Gothic", 12))
+        self.year_seg.pack(side="left")
+        self.adm_var = ctk.StringVar(value="전체")
+        ctk.CTkLabel(top, text="구분", font=("Malgun Gothic", 12),
+                     text_color=C["muted"]).pack(side="left", padx=(16, 6))
+        ctk.CTkSegmentedButton(top, values=["전체", "수시", "정시"], variable=self.adm_var,
+            command=lambda _=None: self.recompute(), selected_color=C["green"],
+            fg_color=C["card2"], font=("Malgun Gothic", 12)).pack(side="left")
+        inner = ctk.CTkFrame(bar, fg_color="transparent"); inner.pack(fill="x", padx=14, pady=12)
+        names = ["전체 대학"] + sorted(u["name"] for u in self.univs.values())
+        self.univ_var = ctk.StringVar(value="전체 대학")
+        self.univ_menu = ctk.CTkOptionMenu(inner, values=names, variable=self.univ_var,
+            command=self._on_univ_change, width=190, fg_color=C["card2"],
+            button_color=C["blue"], font=("Malgun Gothic", 13))
+        self.univ_menu.pack(side="left")
+        self.cat_var = ctk.StringVar(value="전체")
+        ctk.CTkSegmentedButton(inner, values=["전체", "교과", "종합", "논술", "실기"],
+            variable=self.cat_var, command=lambda _=None: self.recompute(),
+            selected_color=C["blue"], fg_color=C["card2"],
+            font=("Malgun Gothic", 12)).pack(side="left", padx=10)
+        self.search = ctk.CTkEntry(inner, placeholder_text="학과 검색", width=160,
+            fg_color=C["card2"], border_color=C["line"], font=("Malgun Gothic", 13))
+        self.search.pack(side="left"); self.search.bind("<KeyRelease>", lambda _=None: self.recompute())
+        self.only_ok = ctk.CTkCheckBox(inner, text="가능만", font=("Malgun Gothic", 12),
+            command=self.recompute, fg_color=C["blue"]); self.only_ok.pack(side="right")
+
+    def _build_table(self, p):
+        card = self._card(p); card.grid(row=3, column=0, sticky="nsew")
+        card.grid_rowconfigure(0, weight=1); card.grid_columnconfigure(0, weight=1)
+        style = ttk.Style(); style.theme_use("clam")
+        style.configure("J.Treeview", background=C["card"], fieldbackground=C["card"],
+                        foreground=C["text"], rowheight=30, borderwidth=0, font=("Malgun Gothic", 11))
+        style.configure("J.Treeview.Heading", background=C["card2"], foreground=C["muted"],
+                        borderwidth=0, font=("Malgun Gothic", 11, "bold"))
+        style.map("J.Treeview", background=[("selected", C["blue"])], foreground=[("selected", "#fff")])
+        cols = ("대학", "학과", "유형", "밴드", "판정", "정원", "출처")
+        self.tree = ttk.Treeview(card, columns=cols, show="headings", style="J.Treeview")
+        widths = {"대학": 110, "학과": 220, "유형": 60, "밴드": 70, "판정": 100, "정원": 55, "출처": 70}
+        for cn in cols:
+            self.tree.heading(cn, text=cn)
+            self.tree.column(cn, width=widths[cn], anchor=("center" if cn in
+                             ("유형", "밴드", "판정", "정원", "출처") else "w"))
+        for b, col in BAND_COLOR.items():
+            self.tree.tag_configure(b, foreground=col)
+        vs = ttk.Scrollbar(card, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vs.set)
+        self.tree.grid(row=0, column=0, sticky="nsew", padx=(10, 0), pady=10)
+        vs.grid(row=0, column=1, sticky="ns", pady=10)
+        self.tree.bind("<Double-1>", self._on_double)
+        self.tree.bind("<Button-1>", self._on_click_cell)
+
+    # ---------- 로직 ----------
+    def _collect_student(self):
+        self._save_year_entries(self.active_semester)
         self._save_tamgu()
         st = {"gyeyeol": self.gye_var.get()}
         w = self.student["weights"]
@@ -544,6 +818,7 @@ class Lite(ctk.CTk):
                 continue
             weighted_sum = 0
             total_units = 0
+            valid_semesters = 0
             for y in yrs:
                 s1, s2 = f"{y}-1", f"{y}-2"
                 
@@ -552,20 +827,16 @@ class Lite(ctk.CTk):
                     a = subj["ach"].get(sem, "")
                     r = subj["raw"].get(sem, "")
                     u = subj["unit"].get(sem, "")
-                    
                     score = None
                     if g:
                         try: score = conv(float(g))
                         except ValueError: pass
-                    
                     if score is None and a in ["A", "B", "C"]:
                         score = engine.convert_achievement(a)
-                        
                     u_val = 1
                     if u:
                         try: u_val = int(u)
                         except ValueError: pass
-                        
                     return score, u_val
 
                 score1, u1 = get_sem(s1)
@@ -583,21 +854,7 @@ class Lite(ctk.CTk):
                     
             if valid_semesters > 0:
                 weighted_avg = round(weighted_sum / tw, 2)
-                naesin[nm] = {
-                    "grade": weighted_avg, 
-                    "units": total_units,
-                    "raw_data": subj["raw"], 
-                    "ach_data": subj["ach"]
-                }
-            
-        for j in self.jinro_subjects:
-            nm = j.get("name", "").strip()
-            if not nm: continue
-            ach = j.get("achievement", "A")
-            g = {"A": 1.5, "B": 3.5, "C": 5.5}.get(ach, 1.5)
-            try: u = int(j.get("units", "3"))
-            except ValueError: u = 3
-            naesin[nm] = {"grade": g, "units": u}
+                naesin[nm] = {"grade": weighted_avg, "units": total_units, "raw_data": subj["raw"], "ach_data": subj["ach"]}
             
         st["naesin"] = naesin
         su = dict(self.student["suneung"])
