@@ -190,20 +190,19 @@ class Lite(ctk.CTk):
         win = self._top(); win.title("프로그램 업데이트")
         win.geometry("420x210"); win.configure(fg_color=C["card"])
         win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", lambda: None)
+        win.grab_set()
         ctk.CTkLabel(win, text="🔔 새 버전이 있습니다", font=("Malgun Gothic", 17, "bold"),
                      text_color=C["text"]).pack(pady=(24, 6))
-        ctk.CTkLabel(win, text="프로그램을 최신 버전으로 업데이트할까요?\n"
+        ctk.CTkLabel(win, text="프로그램을 최신 버전으로 업데이트해야 합니다.\n"
                      "업데이트 후 자동으로 다시 시작됩니다.",
                      font=("Malgun Gothic", 12), text_color=C["muted"],
                      justify="center").pack(pady=(0, 6))
         row = ctk.CTkFrame(win, fg_color="transparent"); row.pack(pady=14)
-        ctk.CTkButton(row, text="나중에", width=110, fg_color=C["card2"],
-                      hover_color=C["line"], font=("Malgun Gothic", 12),
-                      command=win.destroy).pack(side="left", padx=8)
-        ctk.CTkButton(row, text="지금 업데이트", width=140, fg_color=C["blue"],
-                      font=("Malgun Gothic", 12, "bold"),
+        ctk.CTkButton(row, text="지금 업데이트", width=200, fg_color=C["blue"],
+                      font=("Malgun Gothic", 14, "bold"),
                       command=lambda: (win.destroy(),
-                                       self._do_app_update(mods))).pack(side="left", padx=8)
+                                       self._do_app_update(mods))).pack(padx=8)
 
     def _do_app_update(self, mods):
         self._progress("프로그램 업데이트 중…")
