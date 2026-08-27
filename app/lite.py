@@ -28,8 +28,8 @@ BAND_COLOR = {"안정": C["green"], "적정": C["accent"], "소신": C["yellow"]
               "위험": C["orange"], "매우위험": C["red"],
               "지원불가": C["gray"], "판정보류": C["gray"]}
 BAND_ORDER = ["안정", "적정", "소신", "위험", "매우위험", "판정보류", "지원불가"]
-FIXED_SUBS = ["국어", "영어", "수학", "한국사"]
-SUBS = ["국어", "영어", "수학", "사회", "과학", "한국사"]
+FIXED_SUBS = ["국어", "수학", "영어", "한국사"]
+SUBS = ["국어", "수학", "영어", "사회", "과학", "한국사"]
 FONT = "Malgun Gothic"
 
 ctk.set_appearance_mode("dark")
@@ -461,6 +461,10 @@ class Lite(ctk.CTk):
             command=self._switch_semester, selected_color=C["blue"],
             selected_hover_color=C["blue"], fg_color=C["card2"], font=(FONT, 13))
         self.sem_seg.set("1학기"); self.sem_seg.pack(side="left")
+        
+        t_row = ctk.CTkFrame(c, fg_color="transparent"); t_row.pack(fill="x", padx=16, pady=4)
+        self.semester_title = ctk.CTkLabel(t_row, text="▶ 현재 입력 중: 1학년 1학기", font=("Malgun Gothic", 14, "bold"), text_color=C["blue"])
+        self.semester_title.pack(side="left")
         yrow = ctk.CTkFrame(c, fg_color="transparent"); yrow.pack(fill="x", padx=16, pady=(0, 2))
         ctk.CTkLabel(yrow, text="아직 안 배운 학년:", font=(FONT, 11),
                      text_color=C["muted"]).pack(side="left", padx=(0, 6))
@@ -666,6 +670,9 @@ class Lite(ctk.CTk):
         s = self.sem_seg.get().replace("학기", "")
         self.active_semester = f"{y}-{s}"
         self._load_year_entries(self.active_semester)
+        if hasattr(self, "semester_title"):
+            ys, ss = self.active_semester.split("-")
+            self.semester_title.configure(text=f"▶ 현재 입력 중: {ys}학년 {ss}학기")
         self._rebuild_electives()
 
     def _switch_semester(self, val):
@@ -674,6 +681,9 @@ class Lite(ctk.CTk):
         s = val.replace("학기", "")
         self.active_semester = f"{y}-{s}"
         self._load_year_entries(self.active_semester)
+        if hasattr(self, "semester_title"):
+            ys, ss = self.active_semester.split("-")
+            self.semester_title.configure(text=f"▶ 현재 입력 중: {ys}학년 {ss}학기")
         self._rebuild_electives()
 
     def _on_year_active(self):
@@ -690,6 +700,11 @@ class Lite(ctk.CTk):
 
     def _apply_font_scale(self, delta):
         self.font_scale = max(0.8, min(1.6, round(self.font_scale + delta, 2)))
+        if hasattr(self, "_font_timer") and self._font_timer:
+            self.after_cancel(self._font_timer)
+        self._font_timer = self.after(300, self._do_font_scale)
+
+    def _do_font_scale(self):
         try:
             ctk.set_widget_scaling(self.font_scale)
         except Exception:
@@ -921,6 +936,9 @@ class Lite(ctk.CTk):
         adm = self.adm_var.get()
         if adm != "전체":
             res = [r for r in res if (r.get("admission_type") or "수시") == adm]
+        cat = self.cat_var.get()
+        if cat != "전체":
+            res = [r for r in res if cat in (r.get("category") or "")]
         kw = self.search.get().strip()
         if kw:
             res = [r for r in res if kw.lower() in (r["unit"] or "").lower()]
