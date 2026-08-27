@@ -70,7 +70,8 @@ def local_app_version():
     for m in sorted(LITE_MODULES):
         sp = os.path.join(APP, m)
         if os.path.exists(sp):
-            h.update(m.encode() + open(sp, "rb").read())
+            raw = open(sp, "rb").read().replace(b"\r\n", b"\n")
+            h.update(m.encode() + raw)
     return h.hexdigest()[:12]
 
 
@@ -222,6 +223,24 @@ class Lite(ctk.CTk):
 
     def _restart_app(self):
         """새 코드로 다시 시작."""
+        self._progress_done()
+        win = ctk.CTkToplevel(self)
+        win.title("업데이트 완료")
+        win.geometry("380x160")
+        win.configure(fg_color=C["card"])
+        win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", lambda: None)
+        win.grab_set()
+        win.lift()
+        win.attributes("-topmost", True)
+        ctk.CTkLabel(win, text="✅ 업데이트 완료!\n다시 시작합니다.",
+                     font=("Malgun Gothic", 16, "bold"), text_color=C["text"],
+                     justify="center").pack(pady=(30, 10))
+        ctk.CTkButton(win, text="확인", width=120, fg_color=C["blue"],
+                      font=("Malgun Gothic", 13, "bold"),
+                      command=lambda: self._do_restart()).pack(pady=10)
+
+    def _do_restart(self):
         import subprocess
         try:
             subprocess.Popen([sys.executable, os.path.join(APP, "lite.py")], close_fds=True)
@@ -472,12 +491,15 @@ class Lite(ctk.CTk):
         self._refresh_student_list()
 
         c = self._section(p, "📘", "내신 교과 등급", C["blue"], "사회·과학 추가·이름변경 가능")
-        top_row = ctk.CTkFrame(c, fg_color="transparent"); top_row.pack(fill="x", padx=16, pady=(2, 4))
-        self.year_seg = ctk.CTkSegmentedButton(top_row, values=["1학년", "2학년", "3학년"],
+        yr_row = ctk.CTkFrame(c, fg_color="transparent"); yr_row.pack(fill="x", padx=16, pady=(2, 2))
+        ctk.CTkLabel(yr_row, text="학년", font=(FONT, 12), text_color=C["muted"]).pack(side="left", padx=(0, 6))
+        self.year_seg = ctk.CTkSegmentedButton(yr_row, values=["1학년", "2학년", "3학년"],
             command=self._switch_year, selected_color=C["purple"], fg_color=C["card2"],
             font=(FONT, 13)); self.year_seg.set("1학년")
-        self.year_seg.pack(side="left", padx=(0, 6))
-        self.sem_seg = ctk.CTkSegmentedButton(top_row, values=["1학기", "2학기"],
+        self.year_seg.pack(side="left")
+        sm_row = ctk.CTkFrame(c, fg_color="transparent"); sm_row.pack(fill="x", padx=16, pady=(2, 4))
+        ctk.CTkLabel(sm_row, text="학기", font=(FONT, 12), text_color=C["muted"]).pack(side="left", padx=(0, 6))
+        self.sem_seg = ctk.CTkSegmentedButton(sm_row, values=["1학기", "2학기"],
             command=self._switch_semester, selected_color=C["blue"],
             selected_hover_color=C["blue"], fg_color=C["card2"], font=(FONT, 13))
         self.sem_seg.set("1학기"); self.sem_seg.pack(side="left")
