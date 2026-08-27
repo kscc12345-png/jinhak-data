@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-27 18:54",
+  "generated": "2026-08-27 19:30",
   "app_version": "0724b8c5611d",
   "app_modules": [
     "assemble.py",
@@ -115,6 +115,18 @@
       "name": "시립대학교",
       "year": 2027,
       "units": 119
+    },
+    {
+      "code": "u3bd52eb8",
+      "name": "순천향대학교",
+      "year": 2027,
+      "units": 231
+    },
+    {
+      "code": "ue9e7dfcc",
+      "name": "서울시립대학교",
+      "year": 2027,
+      "units": 113
     },
     {
       "code": "woosong",
