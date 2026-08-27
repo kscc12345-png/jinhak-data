@@ -1,0 +1,132 @@
+{
+  "generated": "2026-08-27 16:38",
+  "app_version": "393bd82d6094",
+  "app_modules": [
+    "assemble.py",
+    "cryptobox.py",
+    "engine.py",
+    "features.py",
+    "gyogwa.py",
+    "lite.py",
+    "meta.py",
+    "model.py",
+    "srcref.py",
+    "suneung.py"
+  ],
+  "universities": [
+    {
+      "code": "ajou",
+      "name": "아주대학교",
+      "year": 2027,
+      "units": 77
+    },
+    {
+      "code": "cau",
+      "name": "중앙대학교",
+      "year": 2027,
+      "units": 189
+    },
+    {
+      "code": "chungbuk",
+      "name": "충북대학교",
+      "year": 2027,
+      "units": 328
+    },
+    {
+      "code": "chungnam",
+      "name": "충남대학교",
+      "year": 2027,
+      "units": 316
+    },
+    {
+      "code": "dankook",
+      "name": "단국대학교",
+      "year": 2027,
+      "units": 316
+    },
+    {
+      "code": "dongguk",
+      "name": "동국대학교",
+      "year": 2027,
+      "units": 270
+    },
+    {
+      "code": "ewha",
+      "name": "이화여자대학교",
+      "year": 2027,
+      "units": 220
+    },
+    {
+      "code": "hanbat",
+      "name": "국립한밭대학교",
+      "year": 2027,
+      "units": 138
+    },
+    {
+      "code": "hanyang",
+      "name": "한양대학교",
+      "year": 2027,
+      "units": 136
+    },
+    {
+      "code": "hufs",
+      "name": "한국외국어대학교",
+      "year": 2027,
+      "units": 341
+    },
+    {
+      "code": "khu",
+      "name": "경희대학교",
+      "year": 2027,
+      "units": 402
+    },
+    {
+      "code": "knsu",
+      "name": "한국체육대학교",
+      "year": 2027,
+      "units": 234
+    },
+    {
+      "code": "kongju",
+      "name": "국립공주대학교",
+      "year": 2027,
+      "units": 301
+    },
+    {
+      "code": "mokwon",
+      "name": "목원대학교",
+      "year": 2027,
+      "units": 151
+    },
+    {
+      "code": "paichai",
+      "name": "배재대학교",
+      "year": 2027,
+      "units": 3
+    },
+    {
+      "code": "snu",
+      "name": "서울대학교",
+      "year": 2027,
+      "units": 158
+    },
+    {
+      "code": "u019b4d38",
+      "name": "시립대학교",
+      "year": 2027,
+      "units": 119
+    },
+    {
+      "code": "woosong",
+      "name": "우송대학교",
+      "year": 2027,
+      "units": 123
+    },
+    {
+      "code": "yonsei",
+      "name": "연세대학교(서울)",
+      "year": 2027,
+      "units": 202
+    }
+  ]
+}
