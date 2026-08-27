@@ -451,6 +451,27 @@ class Lite(ctk.CTk):
                                variable=self.curriculum_var, command=self._on_curriculum_change,
                                fg_color=C["card2"], selected_color=C["purple"], font=(FONT, 12)).pack(side="left", padx=(8, 0))
 
+        # 학생 정보 관리
+        c2 = self._section(p, "👤", "학생 성적 저장/불러오기", C["green"], "현재 PC에만 저장됩니다")
+        r1 = ctk.CTkFrame(c2, fg_color="transparent"); r1.pack(fill="x", padx=16, pady=(4,2))
+        ctk.CTkLabel(r1, text="반", font=(FONT, 12)).pack(side="left")
+        self.class_var = ctk.StringVar()
+        ctk.CTkEntry(r1, textvariable=self.class_var, width=40).pack(side="left", padx=4)
+        ctk.CTkLabel(r1, text="번호", font=(FONT, 12)).pack(side="left")
+        self.num_var = ctk.StringVar()
+        ctk.CTkEntry(r1, textvariable=self.num_var, width=40).pack(side="left", padx=4)
+        ctk.CTkLabel(r1, text="이름", font=(FONT, 12)).pack(side="left")
+        self.name_var = ctk.StringVar()
+        ctk.CTkEntry(r1, textvariable=self.name_var, width=80).pack(side="left", padx=4)
+        ctk.CTkButton(r1, text="저장", width=50, command=self._save_student_data, fg_color=C["accent"]).pack(side="left", padx=10)
+
+        r2 = ctk.CTkFrame(c2, fg_color="transparent"); r2.pack(fill="x", padx=16, pady=(2,8))
+        self.student_list_var = ctk.StringVar(value="저장된 학생 선택")
+        self.student_combo = ctk.CTkOptionMenu(r2, variable=self.student_list_var, values=["선택 안 됨"], command=self._load_student_data, width=200)
+        self.student_combo.pack(side="left", padx=(0, 10))
+        ctk.CTkButton(r2, text="삭제", width=50, command=self._delete_student_data, fg_color=C["orange"]).pack(side="left")
+        self._refresh_student_list()
+
         c = self._section(p, "📘", "내신 교과 등급", C["blue"], "사회·과학 추가·이름변경 가능")
         top_row = ctk.CTkFrame(c, fg_color="transparent"); top_row.pack(fill="x", padx=16, pady=(2, 4))
         self.year_seg = ctk.CTkSegmentedButton(top_row, values=["1학년", "2학년", "3학년"],
@@ -553,6 +574,117 @@ class Lite(ctk.CTk):
             e = self._mini_entry(cell, 66, "0~100"); e.pack(side="left", padx=4)
             e.bind("<KeyRelease>", lambda _=None: self.recompute())
             self.baekbunwi_entries[a] = e
+
+
+    def _get_students_file(self):
+        import os
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "students.json")
+
+    def _refresh_student_list(self):
+        import json, os
+        f = self._get_students_file()
+        if os.path.exists(f):
+            try:
+                with open(f, "r", encoding="utf-8") as file:
+                    data = json.load(file)
+                keys = list(data.keys())
+                if keys:
+                    self.student_combo.configure(values=keys)
+                    return
+            except Exception:
+                pass
+        self.student_combo.configure(values=["저장된 학생 없음"])
+        self.student_list_var.set("저장된 학생 선택")
+
+    def _save_student_data(self):
+        import json, os
+        c, n, nm = self.class_var.get().strip(), self.num_var.get().strip(), self.name_var.get().strip()
+        if not c or not n or not nm:
+            return
+        key = f"{c}반 {n}번 {nm}"
+        self._save_year_entries(self.active_semester)
+        self._save_tamgu()
+        f = self._get_students_file()
+        data = {}
+        if os.path.exists(f):
+            try:
+                with open(f, "r", encoding="utf-8") as file: data = json.load(file)
+            except: pass
+        
+        # We must serialize self.subjects, suneung, weights
+        def _clean_dict(d):
+            return {k: v for k, v in d.items() if not k.startswith("_")}
+        
+        st_data = {
+            "gye": self.gye_var.get(),
+            "curr": self.curriculum_var.get(),
+            "five": self.five_var.get(),
+            "year_active": getattr(self, "year_active", {}),
+            "weights": getattr(self.student, "weights", {}),
+            "subjects": self.subjects,
+            "suneung": getattr(self.student, "suneung", {})
+        }
+        data[key] = st_data
+        with open(f, "w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+        self._refresh_student_list()
+        self.student_list_var.set(key)
+
+    def _load_student_data(self, key):
+        import json, os
+        if "선택" in key or "없음" in key: return
+        f = self._get_students_file()
+        if not os.path.exists(f): return
+        try:
+            with open(f, "r", encoding="utf-8") as file: data = json.load(file)
+            st = data.get(key)
+            if not st: return
+            self.gye_var.set(st.get("gye", "자연"))
+            self.curriculum_var.set(st.get("curr", "현행(2015)"))
+            self._on_curriculum_change(self.curriculum_var.get())
+            self.five_var.set(st.get("five", False))
+            if hasattr(self, "year_active"):
+                for y, active in st.get("year_active", {}).items():
+                    self.year_active[y] = active
+                    if y in self.year_off_vars: self.year_off_vars[y].set(not active)
+            for y, w in st.get("weights", {}).items():
+                if y in getattr(self, "weight_entries", {}):
+                    self.weight_entries[y].delete(0, "end")
+                    self.weight_entries[y].insert(0, str(w))
+            self.subjects = st.get("subjects", [])
+            for k, v in st.get("suneung", {}).items():
+                if k in getattr(self, "suneung_entries", {}):
+                    self.suneung_entries[k].delete(0, "end")
+                    self.suneung_entries[k].insert(0, str(v))
+            
+            # extract class/num/name from key
+            import re
+            m = re.match(r"(\d+)반\s+(\d+)번\s+(.+)", key)
+            if m:
+                self.class_var.set(m.group(1))
+                self.num_var.set(m.group(2))
+                self.name_var.set(m.group(3))
+                
+            self._rebuild_electives()
+            self._load_year_entries(self.active_semester)
+            self.recompute()
+        except Exception as e:
+            print("Load error:", e)
+
+    def _delete_student_data(self):
+        import json, os
+        key = self.student_list_var.get()
+        if "선택" in key or "없음" in key: return
+        f = self._get_students_file()
+        if os.path.exists(f):
+            try:
+                with open(f, "r", encoding="utf-8") as file: data = json.load(file)
+                if key in data:
+                    del data[key]
+                    with open(f, "w", encoding="utf-8") as file: json.dump(data, file, ensure_ascii=False)
+            except: pass
+        self._refresh_student_list()
+        self.class_var.set(""); self.num_var.set(""); self.name_var.set("")
 
     def _on_curriculum_change(self, val):
         if val == "2022 개정":
