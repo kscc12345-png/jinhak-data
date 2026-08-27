@@ -7,7 +7,7 @@ gyogwa.py — 학생부 교과 환산점수 계산.
   {"국어":{"grade":2.3,"units":12}, ...}
 """
 
-def _get(student_gyogwa, subj):
+def _get(student_gyogwa, subj, univ=None):
     v = student_gyogwa.get(subj)
     if v is None:
         return None, 0
@@ -16,6 +16,21 @@ def _get(student_gyogwa, subj):
             ach = v["achievement"].upper() if isinstance(v["achievement"], str) else ""
             grade = {"A": 1.5, "B": 3.5, "C": 5.5}.get(ach, 5.0)
             return grade, v.get("units", 1)
+            
+        yearly = v.get("yearly_grades")
+        if yearly and univ and univ.get("grade_weights"):
+            w_dict = univ["grade_weights"].get("weights", {"1": 1, "2": 1, "3": 1})
+            tw = 0.0
+            w_sum = 0.0
+            for y in ["1", "2", "3"]:
+                if yearly.get(y) is not None:
+                    wy = float(w_dict.get(y, 1))
+                    w_sum += yearly[y] * wy
+                    tw += wy
+            if tw > 0:
+                grade = w_sum / tw
+                return grade, v.get("units", 1)
+                
         return v.get("grade"), v.get("units", 1)
     return v, 1  # 단위 미제공 → 동일가중
 
@@ -43,12 +58,12 @@ def apply_selection_rules(student_gyogwa, subjects, rules):
     return filtered_subjects
 
 
-def reflected_avg(student_gyogwa, subjects):
+def reflected_avg(student_gyogwa, subjects, univ=None):
     """반영교과의 (이수단위 가중) 평균 등급."""
     num = den = 0.0
     used = []
     for s in subjects:
-        g, u = _get(student_gyogwa, s)
+        g, u = _get(student_gyogwa, s, univ=univ)
         if g is None:
             continue
         num += g * u
@@ -76,7 +91,7 @@ def scale_score(avg_grade, scale):
     return None
 
 
-def evaluate(track, student_gyogwa):
+def evaluate(track, student_gyogwa, univ=None):
     """
     반환 dict(applies, avg_grade, score, max_score, pct, subjects, detail)
     """
@@ -86,7 +101,7 @@ def evaluate(track, student_gyogwa):
     subs = g["subjects"]
     if "selection_rules" in g:
         subs = apply_selection_rules(student_gyogwa, subs, g["selection_rules"])
-    avg, used = reflected_avg(student_gyogwa, subs)
+    avg, used = reflected_avg(student_gyogwa, subs, univ=univ)
     if avg is None:
         return {"applies": True, "avg_grade": None, "score": None,
                 "detail": f"반영교과({', '.join(subs)}) 성적 미입력"}

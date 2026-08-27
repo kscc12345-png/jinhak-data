@@ -151,7 +151,7 @@ def jeongsi_band(unit, student):
 def eval_unit(univ, track, unit, student):
     rule = model.resolve_suneung(univ, track, unit)
     su = suneung.evaluate(rule, student.get("suneung", {}))
-    gy = gyogwa.evaluate(track, student.get("naesin", {}))
+    gy = gyogwa.evaluate(track, student.get("naesin", {}), univ=univ)
     # 계열 적합성
     gy_ok = True
     if student.get("gyeyeol") and unit.get("gyeyeol") and unit["gyeyeol"] != "공통":

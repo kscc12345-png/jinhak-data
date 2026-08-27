@@ -502,7 +502,7 @@ class Lite(ctk.CTk):
         self.elec_frame = ctk.CTkFrame(c, fg_color="transparent")
         self.elec_frame.pack(fill="x", padx=16, pady=(2, 4))
         self._rebuild_electives()
-        ctk.CTkLabel(c, text="학년 비중 (클수록 더 반영)", font=(FONT, 11),
+        ctk.CTkLabel(c, text="기본 학년 비중 (대학 자체 기준이 우선 적용됨)", font=(FONT, 11),
                      text_color=C["muted"]).pack(anchor="w", padx=16, pady=(6, 2))
         wrow = ctk.CTkFrame(c, fg_color="transparent"); wrow.pack(fill="x", padx=16, pady=(0, 10))
         for y in ["1", "2", "3"]:
@@ -860,6 +860,7 @@ class Lite(ctk.CTk):
             weighted_sum = 0
             total_units = 0
             valid_semesters = 0
+            yearly_grades = {}
             for y in yrs:
                 s1, s2 = f"{y}-1", f"{y}-2"
                 
@@ -889,13 +890,14 @@ class Lite(ctk.CTk):
                 
                 if sem_count > 0:
                     year_avg = sem_sum / sem_count
+                    yearly_grades[y] = year_avg
                     weighted_sum += year_avg * w[y]
                     total_units += sem_u
                     valid_semesters += 1
                     
             if valid_semesters > 0:
                 weighted_avg = round(weighted_sum / tw, 2)
-                naesin[nm] = {"grade": weighted_avg, "units": total_units, "raw_data": subj["raw"], "ach_data": subj["ach"]}
+                naesin[nm] = {"grade": weighted_avg, "units": total_units, "yearly_grades": yearly_grades, "raw_data": subj["raw"], "ach_data": subj["ach"]}
             
         st["naesin"] = naesin
         su = dict(self.student["suneung"])
