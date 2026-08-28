@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28 12:54",
+  "generated": "2026-08-28 12:57",
   "app_version": "b6c83b762b95",
   "app_modules": [
     "assemble.py",
@@ -72,7 +72,7 @@
       "code": "hufs",
       "name": "한국외국어대학교",
       "year": 2027,
-      "units": 329
+      "units": 326
     },
     {
       "code": "khu",
@@ -90,7 +90,7 @@
       "code": "kongju",
       "name": "국립공주대학교",
       "year": 2027,
-      "units": 292
+      "units": 282
     },
     {
       "code": "mokwon",
