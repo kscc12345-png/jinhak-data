@@ -60,19 +60,29 @@ def save_code(code):
 
 # 자동 업데이트 대상 앱 모듈(publish.LITE_MODULES 와 동일해야 함)
 LITE_MODULES = ["lite.py", "engine.py", "assemble.py", "suneung.py", "gyogwa.py",
-                "model.py", "meta.py", "cryptobox.py", "features.py", "srcref.py"]
+                "model.py", "meta.py", "cryptobox.py", "features.py", "srcref.py", "version.json"]
+
+
+def local_version_info():
+    """로컬 app/version.json의 버전 정보 읽기."""
+    p = os.path.join(APP, "version.json")
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"version": "1.2.0", "version_code": 120, "min_version_code": 100}
+
+
+def local_version_code():
+    """로컬 앱의 정수 버전 코드(예: 120)."""
+    return local_version_info().get("version_code", 120)
 
 
 def local_app_version():
-    """로컬 앱 모듈들의 버전 해시(publish 와 동일 알고리즘)."""
-    import hashlib
-    h = hashlib.md5()
-    for m in sorted(LITE_MODULES):
-        sp = os.path.join(APP, m)
-        if os.path.exists(sp):
-            raw = open(sp, "rb").read().replace(b"\r\n", b"\n")
-            h.update(m.encode() + raw)
-    return h.hexdigest()[:12]
+    """하위 호환용 버전 문자열."""
+    return local_version_info().get("version", "1.2.0")
 
 
 def http_get(url, timeout=20):
@@ -170,7 +180,7 @@ class Lite(ctk.CTk):
             self.after(1500, self._check_app_update)   # 앱(코드) 새 버전 확인
 
     def _check_app_update(self):
-        """GitHub에 새 프로그램 버전이 있으면 업데이트 여부를 묻는다."""
+        """GitHub의 manifest.json과 버전 코드를 비교하여, 서버 버전이 명시적으로 높을 때만 업데이트."""
         url = self.cfg.get("update_url", "").rstrip("/")
         if not url:
             return
@@ -179,22 +189,30 @@ class Lite(ctk.CTk):
             try:
                 import json as _json
                 man = _json.loads(http_get(f"{url}/manifest.json").decode("utf-8"))
-                remote = man.get("app_version")
+                remote_code = man.get("version_code", 0)
+                remote_ver = man.get("version", "최신")
+                min_code = man.get("min_version_code", 0)
                 mods = man.get("app_modules") or LITE_MODULES
-                if remote and remote != local_app_version():
-                    self.after(0, lambda: self._ask_app_update(remote, mods))
+                
+                local_code = local_version_code()
+                
+                # ★ 원격 버전 코드가 로컬 버전 코드보다 클 때만 업데이트 제안
+                # (remote_code <= local_code 일 때는 절대로 업데이트 창이 뜨지 않음)
+                if remote_code > local_code:
+                    forced = local_code < min_code
+                    self.after(0, lambda: self._ask_app_update(remote_ver, remote_code, mods, forced=forced))
             except Exception:
                 pass
         threading.Thread(target=work, daemon=True).start()
 
-    def _ask_app_update(self, remote_ver, mods):
+    def _ask_app_update(self, remote_ver, remote_code, mods, forced=False):
         win = self._top(); win.title("프로그램 업데이트")
-        win.geometry("420x210"); win.configure(fg_color=C["card"])
+        win.geometry("440x220"); win.configure(fg_color=C["card"])
         win.resizable(False, False)
         win.protocol("WM_DELETE_WINDOW", lambda: None)
         win.grab_set()
-        ctk.CTkLabel(win, text="🔔 새 버전이 있습니다", font=("Malgun Gothic", 17, "bold"),
-                     text_color=C["text"]).pack(pady=(24, 6))
+        ctk.CTkLabel(win, text=f"🔔 새 버전(v{remote_ver})이 있습니다", font=("Malgun Gothic", 17, "bold"),
+                     text_color=C["text"]).pack(pady=(22, 6))
         ctk.CTkLabel(win, text="프로그램을 최신 버전으로 업데이트해야 합니다.\n"
                      "업데이트 후 자동으로 다시 시작됩니다.",
                      font=("Malgun Gothic", 12), text_color=C["muted"],
