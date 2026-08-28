@@ -1065,6 +1065,7 @@ class Lite(ctk.CTk):
             if not nm:
                 continue
             weighted_sum = 0
+            subject_weight_sum = 0
             total_units = 0
             valid_semesters = 0
             yearly_grades = {}
@@ -1099,11 +1100,12 @@ class Lite(ctk.CTk):
                     year_avg = sem_sum / sem_count
                     yearly_grades[y] = year_avg
                     weighted_sum += year_avg * w[y]
+                    subject_weight_sum += w[y]
                     total_units += sem_u
                     valid_semesters += 1
                     
-            if valid_semesters > 0:
-                weighted_avg = round(weighted_sum / tw, 2)
+            if valid_semesters > 0 and subject_weight_sum > 0:
+                weighted_avg = round(weighted_sum / subject_weight_sum, 2)
                 naesin[nm] = {"grade": weighted_avg, "units": total_units, "yearly_grades": yearly_grades, "raw_data": subj["raw"], "ach_data": subj["ach"]}
             
         st["naesin"] = naesin
