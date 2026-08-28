@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28 13:51",
+  "generated": "2026-08-28 14:03",
   "app_version": "55913fd93b69",
   "app_modules": [
     "assemble.py",
@@ -138,13 +138,13 @@
       "code": "yonsei",
       "name": "연세대학교(서울)",
       "year": 2026,
-      "units": 202
+      "units": 134
     },
     {
       "code": "yonsei_mirae",
       "name": "연세대학교(미래)",
       "year": 2026,
-      "units": 59
+      "units": 58
     }
   ]
 }
