@@ -98,11 +98,12 @@ def http_get(url, timeout=20):
 
 def read_univs(code=None):
     """반환 (dict|None, need_code:bool). 평문이면 그대로, 암호문이면 code 필요."""
-    if os.path.exists(PLAIN):
-        try:
-            return json.load(open(PLAIN, encoding="utf-8")), False
-        except Exception:
-            return {}, False
+    for p in [PLAIN, os.path.join(BASE, "universities.json")]:
+        if os.path.exists(p):
+            try:
+                return json.load(open(p, encoding="utf-8")), False
+            except Exception:
+                return {}, False
     if os.path.exists(ENC):
         if not code:
             return None, True
