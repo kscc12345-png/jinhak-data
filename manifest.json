@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28 14:03",
+  "generated": "2026-08-28 14:18",
   "app_version": "55913fd93b69",
   "app_modules": [
     "assemble.py",
@@ -24,7 +24,7 @@
       "code": "cau",
       "name": "중앙대학교",
       "year": 2027,
-      "units": 202
+      "units": 246
     },
     {
       "code": "chungbuk",
@@ -48,7 +48,7 @@
       "code": "dongguk",
       "name": "동국대학교(서울)",
       "year": 2027,
-      "units": 275
+      "units": 346
     },
     {
       "code": "dongguk_wise",
@@ -138,7 +138,7 @@
       "code": "yonsei",
       "name": "연세대학교(서울)",
       "year": 2026,
-      "units": 134
+      "units": 202
     },
     {
       "code": "yonsei_mirae",
