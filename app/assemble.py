@@ -23,14 +23,27 @@ EODIGA_DIR = os.path.join(BASE, "data", "eodiga")               # 어디가 결�
 _CAT2TRACK = {"교과": "학생부교과", "종합": "학생부종합"}
 
 
+_UNIT_ALIASES = {
+    "연기전공": "연극영화영상학부",
+    "영화영상전공": "연극영화영상학부",
+    "국방일반행정전공": "경찰행정학부",
+    "국방일반행정": "경찰행정학부",
+    "실용음악학부보컬전공기악전공": "실용음악학부",
+    "학부수석장학금": "자율전공학부",
+    "학부과수석장학금": "자율전공학부",
+}
+
+
 def _norm_unit(nm):
-    """학과명 정규화(공백·특수기호·가운뎃점·군표기 제거)로 매칭 정확도 향상."""
+    """학과명 정규화(공백·특수기호·가운뎃점·군표기·수석장학/SW 접미사 제거)로 매칭 정확도 향상."""
     import re as _re
-    s = _re.sub(r"[\*\★\◆\■\●\○\※\#\†\^]+", "", nm or "")
+    s = _re.sub(r"[\*\★\◆\■\●\○\※\#\†\^\♣\◈\▲\▼\♠\♥\☆\◇\◎\▷\▶\✓\✔\✦\✧\·\•\☎\㈜]+", " ", nm or "")
+    s = _re.sub(r"\s*-\s*.*", "", s)              # 하이픈 세부전공 분리 (예: 학부 - 전공1 - 전공2 -> 학부)
+    s = _re.sub(r"\bSW\b", "", s)                 # SW 전형 태그 제거
     s = _re.sub(r"[・ㆍ·•\-\_\~\/\,\.\[\]\(\)]", "", s)
     s = _re.sub(r"\s+", "", s)
-    s = _re.sub(r"^\(?[가나다]\)?", "", s)   # 정시 군 표기 제거
-    s = _re.sub(r"(야간|주간|정원내|정원외|5년제)$", "", s)
+    s = _re.sub(r"^\(?[가나다]\)?", "", s)         # 정시 군 표기 제거
+    s = _re.sub(r"(야간|주간|정원내|정원외|5년제|수석장학금|장학금)$", "", s)
     return s
 
 
@@ -79,7 +92,7 @@ def load_eodiga(code):
 
 
 def _find_eodiga_recs(ed, unit_name):
-    """어디가 데이터에서 학과명에 대한 레코드를 다단계 탐색(정확 매칭 -> 기본 학과명 -> 어근 매칭)."""
+    """어디가 데이터에서 학과명에 대한 레코드를 다단계 탐색(정확 매칭 -> 기본 학과명 -> 별칭 -> 어근 매칭)."""
     if not ed or not unit_name:
         return None
     k_norm = _norm_unit(unit_name)
@@ -88,9 +101,18 @@ def _find_eodiga_recs(ed, unit_name):
     k_base = _base_unit(unit_name)
     if k_base in ed.get("_base_idx", {}):
         return ed["_base_idx"][k_base]
+    # 별칭 탐색
+    alias = _UNIT_ALIASES.get(k_norm) or _UNIT_ALIASES.get(k_base)
+    if alias:
+        a_norm = _norm_unit(alias)
+        if a_norm in ed.get("_idx", {}):
+            return ed["_idx"][a_norm]
+        if a_norm in ed.get("_base_idx", {}):
+            return ed["_base_idx"][a_norm]
     k_root = _root_unit(unit_name)
     if len(k_root) >= 2 and k_root in ed.get("_root_idx", {}):
         return ed["_root_idx"][k_root]
+    return None
     return None
 
 
