@@ -1025,6 +1025,12 @@ class Lite(ctk.CTk):
         self.tree.bind("<Double-1>", self._on_double)
         self.tree.bind("<Button-1>", self._on_click_cell)
 
+        # 학과 특수기호 범례 안내 바
+        legend = ctk.CTkFrame(card, fg_color="transparent")
+        legend.grid(row=1, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 6))
+        ctk.CTkLabel(legend, text="💡 학과명 기호(*, ★, † 등): 각 대학 모집요강 표의 세부 각주(Footnote) 표시입니다. [출처 열 클릭] 시 요강 원문 각주를 바로 확인할 수 있습니다.",
+                     font=("Malgun Gothic", 11), text_color=C["muted"]).pack(side="left")
+
     # ---------- 로직 ----------
     def _collect_student(self):
         self._save_year_entries(self.active_semester)
@@ -1175,8 +1181,26 @@ class Lite(ctk.CTk):
         info = f"{r.get('gyeyeol') or '-'}계열"
         if r.get("count"): info += f"  ·  정원 {r['count']}명"
         if r.get("college"): info += f"  ·  {r['college']}"
+        u_name = r.get("unit", "")
+        sym_badges = []
+        if "*" in u_name or "†" in u_name:
+            sym_badges.append("🎓 교직과정 설치학과")
+        if "★" in u_name or "◆" in u_name:
+            sym_badges.append("🚀 첨단·신설학과")
+        if "**" in u_name or "***" in u_name:
+            sym_badges.append("⚡ 별도 수능최저/특수선발")
+
+        if sym_badges:
+            badge_row = ctk.CTkFrame(head, fg_color="transparent")
+            badge_row.pack(anchor="w", padx=20, pady=(0, 8))
+            for b_txt in sym_badges:
+                b_frame = ctk.CTkFrame(badge_row, fg_color=C["card2"], corner_radius=6)
+                b_frame.pack(side="left", padx=(0, 6))
+                ctk.CTkLabel(b_frame, text=b_txt, font=("Malgun Gothic", 11, "bold"),
+                             text_color=C["blue"]).pack(padx=8, pady=2)
+
         ctk.CTkLabel(head, text=info, font=("Malgun Gothic", 12), text_color=C["muted"]
-                     ).pack(anchor="w", padx=20, pady=(0, 14))
+                     ).pack(anchor="w", padx=20, pady=(0, 12))
         body = ctk.CTkScrollableFrame(win, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=12, pady=12)
         ctk.CTkLabel(body, text="진학 방법 (전형별)", font=("Malgun Gothic", 14, "bold"),
