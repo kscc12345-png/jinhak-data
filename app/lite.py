@@ -138,7 +138,7 @@ class Lite(ctk.CTk):
             "weights": {"1": 2.0, "2": 4.0, "3": 4.0},
             "suneung": {"국어": 3, "수학": 3, "영어": 3, "한국사": 4, "수학선택": "미적분"},
         }
-        def _d(): return {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
+        def _d(self=None): return {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
         self.subjects = [{"name": s, "fixed": True, "kind": None, "grade": _d(), "ach": _d(), "raw": _d(), "unit": _d()}
                          for s in FIXED_SUBS]
         self.subjects += [{"name": "사회", "fixed": False, "kind": "사회", "grade": _d(), "ach": _d(), "raw": _d(), "unit": _d()},
@@ -757,22 +757,35 @@ class Lite(ctk.CTk):
             ctk.CTkButton(row, text="✕", width=24, height=24, fg_color=C["card"], hover_color=C["red"], font=(FONT, 11), text_color=C["muted"], command=lambda s=subj: self._remove_subject(s)).pack(side="right", padx=6)
         
         add = ctk.CTkFrame(self.elec_frame, fg_color="transparent"); add.pack(fill="x", pady=(4, 2))
-        ctk.CTkButton(add, text="＋ 일반", width=90, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["blue"], command=lambda: self._add_subject("일반")).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(add, text="＋ 일반", width=70, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["blue"], command=lambda: self._add_subject("일반")).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(add, text="＋ 과학", width=70, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["purple"], command=lambda: self._add_subject("과학")).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(add, text="＋ 사회", width=70, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["orange"], command=lambda: self._add_subject("사회")).pack(side="left")
         
         self._load_year_entries(yr)
         
     def _add_subject(self, kind):
         self._save_year_entries(self.active_semester)
         n = sum(1 for s in self.subjects if s.get("kind") == kind)
-        self.subjects.append({"name": f"{kind}{n+1}", "fixed": False, "kind": kind,
-                              "year": {"1-1": 3.0, "1-2": 3.0, "2-1": 3.0, "2-2": 3.0, "3-1": 3.0, "3-2": 3.0},
-                              "units": {"1-1": 3, "1-2": 3, "2-1": 3, "2-2": 3, "3-1": 3, "3-2": 3}})
+        d_val = lambda: {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
+        self.subjects.append({
+            "name": f"{kind}{n+1}", 
+            "fixed": False, 
+            "kind": kind,
+            "grade": d_val(), 
+            "ach": d_val(), 
+            "raw": d_val(), 
+            "unit": d_val()
+        })
         self._rebuild_electives(); self.recompute()
 
     def _remove_subject(self, subj):
         self._save_year_entries(self.active_semester)
         self.subjects = [s for s in self.subjects if s is not subj]
-        self.year_entries.pop(id(subj), None)
+        sid = id(subj)
+        self.grade_entries.pop(sid, None)
+        self.ach_entries.pop(sid, None)
+        self.raw_entries.pop(sid, None)
+        self.unit_entries.pop(sid, None)
         self._rebuild_electives(); self.recompute()
 
     def _rebuild_tamgu(self):
@@ -822,14 +835,19 @@ class Lite(ctk.CTk):
     def _load_year_entries(self, yr):
         for subj in self.subjects:
             sid = id(subj)
-            if sid in self.grade_entries: self.grade_entries[sid].delete(0, "end"); self.grade_entries[sid].insert(0, str(subj["grade"].get(yr, "")))
-            if sid in self.ach_entries: self.ach_entries[sid].delete(0, "end"); self.ach_entries[sid].insert(0, str(subj["ach"].get(yr, "")))
-            if sid in self.raw_entries: self.raw_entries[sid].delete(0, "end"); self.raw_entries[sid].insert(0, str(subj["raw"].get(yr, "")))
-            if sid in self.unit_entries: self.unit_entries[sid].delete(0, "end"); self.unit_entries[sid].insert(0, str(subj["unit"].get(yr, "")))
+            if sid in self.grade_entries: self.grade_entries[sid].delete(0, "end"); self.grade_entries[sid].insert(0, str(subj.get("grade", {}).get(yr, "")))
+            if sid in self.ach_entries: self.ach_entries[sid].delete(0, "end"); self.ach_entries[sid].insert(0, str(subj.get("ach", {}).get(yr, "")))
+            if sid in self.raw_entries: self.raw_entries[sid].delete(0, "end"); self.raw_entries[sid].insert(0, str(subj.get("raw", {}).get(yr, "")))
+            if sid in self.unit_entries: self.unit_entries[sid].delete(0, "end"); self.unit_entries[sid].insert(0, str(subj.get("unit", {}).get(yr, "")))
 
     def _save_year_entries(self, yr):
+        d_val = lambda: {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
         for subj in self.subjects:
             sid = id(subj)
+            if "grade" not in subj: subj["grade"] = d_val()
+            if "ach" not in subj: subj["ach"] = d_val()
+            if "raw" not in subj: subj["raw"] = d_val()
+            if "unit" not in subj: subj["unit"] = d_val()
             if sid in self.grade_entries: subj["grade"][yr] = self.grade_entries[sid].get().strip()
             if sid in self.ach_entries: subj["ach"][yr] = self.ach_entries[sid].get().strip().upper()
             if sid in self.raw_entries: subj["raw"][yr] = self.raw_entries[sid].get().strip()
