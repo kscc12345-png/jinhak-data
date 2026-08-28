@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28 09:41",
+  "generated": "2026-08-28 11:57",
   "app_version": "5f7f99eaffe6",
   "app_modules": [
     "assemble.py",
@@ -46,7 +46,7 @@
     },
     {
       "code": "dongguk",
-      "name": "동국대학교",
+      "name": "동국대학교(서울)",
       "year": 2027,
       "units": 270
     },
@@ -64,7 +64,7 @@
     },
     {
       "code": "hanyang",
-      "name": "한양대학교",
+      "name": "한양대학교(서울)",
       "year": 2027,
       "units": 136
     },
@@ -72,7 +72,7 @@
       "code": "hufs",
       "name": "한국외국어대학교",
       "year": 2027,
-      "units": 341
+      "units": 345
     },
     {
       "code": "khu",
