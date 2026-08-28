@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28 13:29",
+  "generated": "2026-08-28 13:47",
   "app_version": "55913fd93b69",
   "app_modules": [
     "assemble.py",
@@ -48,13 +48,13 @@
       "code": "dongguk",
       "name": "동국대학교(서울)",
       "year": 2027,
-      "units": 108
+      "units": 275
     },
     {
       "code": "dongguk_wise",
       "name": "동국대학교(WISE)",
       "year": 2027,
-      "units": 107
+      "units": 150
     },
     {
       "code": "ewha",
@@ -137,14 +137,14 @@
     {
       "code": "yonsei",
       "name": "연세대학교(서울)",
-      "year": 2027,
-      "units": 40
+      "year": 2026,
+      "units": 202
     },
     {
       "code": "yonsei_mirae",
       "name": "연세대학교(미래)",
-      "year": 2027,
-      "units": 43
+      "year": 2026,
+      "units": 59
     }
   ]
 }
