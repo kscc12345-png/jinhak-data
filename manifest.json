@@ -1,6 +1,6 @@
 {
-  "generated": "2026-08-28 11:57",
-  "app_version": "5f7f99eaffe6",
+  "generated": "2026-08-28 12:35",
+  "app_version": "b6c83b762b95",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -30,13 +30,13 @@
       "code": "chungbuk",
       "name": "충북대학교",
       "year": 2027,
-      "units": 328
+      "units": 326
     },
     {
       "code": "chungnam",
       "name": "충남대학교",
       "year": 2027,
-      "units": 316
+      "units": 290
     },
     {
       "code": "dankook",
@@ -54,13 +54,13 @@
       "code": "ewha",
       "name": "이화여자대학교",
       "year": 2027,
-      "units": 220
+      "units": 208
     },
     {
       "code": "hanbat",
       "name": "국립한밭대학교",
       "year": 2027,
-      "units": 138
+      "units": 133
     },
     {
       "code": "hanyang",
@@ -72,13 +72,13 @@
       "code": "hufs",
       "name": "한국외국어대학교",
       "year": 2027,
-      "units": 345
+      "units": 329
     },
     {
       "code": "khu",
       "name": "경희대학교",
       "year": 2027,
-      "units": 402
+      "units": 379
     },
     {
       "code": "knsu",
@@ -90,7 +90,7 @@
       "code": "kongju",
       "name": "국립공주대학교",
       "year": 2027,
-      "units": 301
+      "units": 292
     },
     {
       "code": "mokwon",
@@ -108,7 +108,7 @@
       "code": "sch",
       "name": "순천향대학교",
       "year": 2027,
-      "units": 231
+      "units": 225
     },
     {
       "code": "snu",
@@ -120,7 +120,7 @@
       "code": "uos",
       "name": "서울시립대학교",
       "year": 2027,
-      "units": 119
+      "units": 117
     },
     {
       "code": "woosong",

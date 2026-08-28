@@ -24,15 +24,36 @@ _CAT2TRACK = {"교과": "학생부교과", "종합": "학생부종합"}
 
 
 def _norm_unit(nm):
-    """학과명 정규화(공백·군표기 제거)로 매칭 정확도 향상."""
+    """학과명 정규화(공백·특수기호·가운뎃점·군표기 제거)로 매칭 정확도 향상."""
     import re as _re
-    s = _re.sub(r"\s+", "", nm or "")
+    s = _re.sub(r"[\*\★\◆\■\●\○\※\#\†\^]+", "", nm or "")
+    s = _re.sub(r"[・ㆍ·•\-\_\~\/\,\.\[\]\(\)]", "", s)
+    s = _re.sub(r"\s+", "", s)
     s = _re.sub(r"^\(?[가나다]\)?", "", s)   # 정시 군 표기 제거
+    s = _re.sub(r"(야간|주간|정원내|정원외|5년제)$", "", s)
+    return s
+
+
+def _base_unit(nm):
+    """캠퍼스 및 괄호 부가정보를 완전히 제거한 순수 학과명."""
+    import re as _re
+    s = nm or ""
+    s = _re.sub(r"\(.*?\)", "", s)
+    s = _re.sub(r"\[.*?\]", "", s)
+    return _norm_unit(s)
+
+
+def _root_unit(nm):
+    """학과/학부/전공/어과 접미사를 정규화한 어근."""
+    s = _base_unit(nm)
+    for suffix in ("어과", "학과", "학부", "전공", "계열"):
+        if s.endswith(suffix) and len(s) > len(suffix) + 1:
+            return s[:-len(suffix)]
     return s
 
 
 def load_eodiga(code):
-    """어디가 결과공개 데이터 로드(학과 정규화 색인)."""
+    """어디가 결과공개 데이터 로드(정밀 다단계 학과 색인 구축)."""
     p = os.path.join(EODIGA_DIR, f"{code}.json")
     if not os.path.exists(p):
         return None
@@ -41,10 +62,36 @@ def load_eodiga(code):
     except Exception:
         return None
     idx = {}
+    base_idx = {}
+    root_idx = {}
     for nm, recs in d.get("results", {}).items():
-        idx.setdefault(_norm_unit(nm), []).extend(recs)
+        k_norm = _norm_unit(nm)
+        k_base = _base_unit(nm)
+        k_root = _root_unit(nm)
+        idx.setdefault(k_norm, []).extend(recs)
+        base_idx.setdefault(k_base, []).extend(recs)
+        if len(k_root) >= 2:
+            root_idx.setdefault(k_root, []).extend(recs)
     d["_idx"] = idx
+    d["_base_idx"] = base_idx
+    d["_root_idx"] = root_idx
     return d
+
+
+def _find_eodiga_recs(ed, unit_name):
+    """어디가 데이터에서 학과명에 대한 레코드를 다단계 탐색(정확 매칭 -> 기본 학과명 -> 어근 매칭)."""
+    if not ed or not unit_name:
+        return None
+    k_norm = _norm_unit(unit_name)
+    if k_norm in ed.get("_idx", {}):
+        return ed["_idx"][k_norm]
+    k_base = _base_unit(unit_name)
+    if k_base in ed.get("_base_idx", {}):
+        return ed["_base_idx"][k_base]
+    k_root = _root_unit(unit_name)
+    if len(k_root) >= 2 and k_root in ed.get("_root_idx", {}):
+        return ed["_root_idx"][k_root]
+    return None
 
 
 _CAT_OF_TRACK = {"학생부교과": "교과", "학생부종합": "종합"}
@@ -75,6 +122,7 @@ def _merge_eodiga_units(univ, ed, yr):
         track_by_cat.setdefault(c, t)
         for u in t.get("units", []):
             have.setdefault(c, set()).add(_norm_unit(u.get("unit", "")))
+            have.setdefault(c, set()).add(_base_unit(u.get("unit", "")))
     by = {}
     for nm, recs in ed.get("results", {}).items():
         for r in recs:
@@ -84,7 +132,9 @@ def _merge_eodiga_units(univ, ed, yr):
     for cat, unit_recs in by.items():
         tr = track_by_cat.get(cat)
         for nm, recs in unit_recs.items():
-            if _norm_unit(nm) in have.get(cat, set()):
+            k_norm = _norm_unit(nm)
+            k_base = _base_unit(nm)
+            if k_norm in have.get(cat, set()) or k_base in have.get(cat, set()):
                 continue
             if tr is None:
                 tr = {"id": f"eodiga_{cat}", "name": f"{cat}전형", "category": cat,
@@ -93,17 +143,17 @@ def _merge_eodiga_units(univ, ed, yr):
                 univ.setdefault("tracks", []).append(tr)
                 track_by_cat[cat] = tr
             tr["units"].append(_eodiga_unit(nm, recs, yr))
-            have.setdefault(cat, set()).add(_norm_unit(nm))
+            have.setdefault(cat, set()).add(k_norm)
+            have.setdefault(cat, set()).add(k_base)
 
 
 def _apply_eodiga(univ, ed):
     """대학 dict의 각 학과에 어디가 결과(전형별) 부착 + 대표 70%컷 설정."""
-    idx = ed.get("_idx", {})
     yr = ed.get("year")
     for t in univ.get("tracks", []):
         want = _CAT2TRACK.get(t.get("category"))
         for u in t.get("units", []):
-            recs = idx.get(_norm_unit(u.get("unit", "")))
+            recs = _find_eodiga_recs(ed, u.get("unit", ""))
             if not recs:
                 continue
             # 전형(track) 일치분만
