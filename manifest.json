@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28 09:36",
+  "generated": "2026-08-28 09:41",
   "app_version": "5f7f99eaffe6",
   "app_modules": [
     "assemble.py",
@@ -105,28 +105,22 @@
       "units": 79
     },
     {
+      "code": "sch",
+      "name": "순천향대학교",
+      "year": 2027,
+      "units": 231
+    },
+    {
       "code": "snu",
       "name": "서울대학교",
       "year": 2027,
       "units": 158
     },
     {
-      "code": "u019b4d38",
-      "name": "시립대학교",
-      "year": 2027,
-      "units": 119
-    },
-    {
-      "code": "u3bd52eb8",
-      "name": "순천향대학교",
-      "year": 2027,
-      "units": 231
-    },
-    {
-      "code": "ue9e7dfcc",
+      "code": "uos",
       "name": "서울시립대학교",
       "year": 2027,
-      "units": 113
+      "units": 119
     },
     {
       "code": "woosong",
