@@ -1208,10 +1208,25 @@ class Lite(ctk.CTk):
                          text_color=C["muted"]).pack(side="right")
             req = x.get("rule_sentence") or x.get("rule_label") or x["suneung"].get("label") \
                 or "수능최저 미적용(또는 정보 없음)"
-            ctk.CTkLabel(card, text="수능최저: " + req, font=("Malgun Gothic", 12), text_color=C["text"],
-                         wraplength=630, justify="left").pack(anchor="w", padx=16, pady=(2, 2))
-            ctk.CTkLabel(card, text="충족 여부: " + x["suneung"].get("detail", "-"),
-                         font=("Malgun Gothic", 12), text_color=C["muted"], wraplength=630,
+            
+            # 원문 3줄 요약 & 수험생 체크포인트
+            guide = meta.get_admission_guide(x.get("univ",""), x.get("category",""), x.get("track_name",""), req)
+            gbox = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=10)
+            gbox.pack(fill="x", padx=16, pady=(6, 4))
+            ctk.CTkLabel(gbox, text="📋 모집요강 핵심 요약 & 수험생 체크포인트",
+                         font=("Malgun Gothic", 12, "bold"), text_color=C["blue"]).pack(anchor="w", padx=12, pady=(6, 2))
+            ctk.CTkLabel(gbox, text=f"• 선발 방식: {guide['method']}",
+                         font=("Malgun Gothic", 11), text_color=C["text"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 1))
+            ctk.CTkLabel(gbox, text=f"• 수능 최저: {guide['suneung']}",
+                         font=("Malgun Gothic", 11), text_color=C["text"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 1))
+            for cp in guide["checkpoints"]:
+                ctk.CTkLabel(gbox, text=f"• 체크사항: {cp}",
+                             font=("Malgun Gothic", 11, "bold"), text_color=C["green"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 3))
+
+            ctk.CTkLabel(card, text="수능최저 세부: " + req, font=("Malgun Gothic", 11), text_color=C["muted"],
+                         wraplength=630, justify="left").pack(anchor="w", padx=16, pady=(4, 2))
+            ctk.CTkLabel(card, text="내 점수 충족 여부: " + x["suneung"].get("detail", "-"),
+                         font=("Malgun Gothic", 11, "bold"), text_color=C["text"], wraplength=630,
                          justify="left").pack(anchor="w", padx=16, pady=(0, 2))
             if features.IPGYEOL_ENABLED and x.get("ipgyeol_naesin"):
                 if x.get("ipgyeol_low") is not None:

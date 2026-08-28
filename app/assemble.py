@@ -31,29 +31,68 @@ _UNIT_ALIASES = {
     "실용음악학부보컬전공기악전공": "실용음악학부",
     "학부수석장학금": "자율전공학부",
     "학부과수석장학금": "자율전공학부",
+    "인문대학자율전공": "자율전공융합학부",
+    "사회과학대학자율전공": "자율전공융합학부",
+    "경상대학자율전공": "자율전공융합학부",
+    "자연과학대학자율전공": "자율전공융합학부",
+    "생활과학대학자율전공": "자율전공융합학부",
+    "생명시스템과학대학자율전공": "자율전공융합학부",
+    "농업생명과학대학자율전공": "자율전공융합학부",
+    "공과대학자율전공": "자율전공융합학부",
+    "기타농생명융합학부포함": "농생명융합학부",
+    "인문사회자율전공계열": "자율전공학부",
 }
 
 
 def _norm_unit(nm):
-    """학과명 정규화(공백·특수기호·가운뎃점·군표기·수석장학/SW 접미사 제거)로 매칭 정확도 향상."""
+    """학과명 정규화(공백·특수기호·가운뎃점·군표기·수석장학/SW/단과대 접두사/접미사 제거)."""
     import re as _re
-    s = _re.sub(r"[\*\★\◆\■\●\○\※\#\†\^\♣\◈\▲\▼\♠\♥\☆\◇\◎\▷\▶\✓\✔\✦\✧\·\•\☎\㈜]+", " ", nm or "")
-    s = _re.sub(r"\s*-\s*.*", "", s)              # 하이픈 세부전공 분리 (예: 학부 - 전공1 - 전공2 -> 학부)
+    if not nm:
+        return ""
+    s = _re.sub(r"[\*\★\◆\■\●\○\※\#\†\^\♣\◈\▲\▼\♠\♥\☆\◇\◎\▷\▶\✓\✔\✦\✧\·\•\☎\㈜]+", " ", nm)
+    s = _re.sub(r"\[전공개방\]", "", s)
+    s = _re.sub(r"^H(?=[가-힣])", "", s)          # H스크랜튼 -> 스크랜튼
+    s = _re.sub(r"\s*-\s*.*", "", s)              # 하이픈 세부전공 분리
     s = _re.sub(r"\bSW\b", "", s)                 # SW 전형 태그 제거
     s = _re.sub(r"[・ㆍ·•\-\_\~\/\,\.\[\]\(\)]", "", s)
     s = _re.sub(r"\s+", "", s)
     s = _re.sub(r"^\(?[가나다]\)?", "", s)         # 정시 군 표기 제거
-    s = _re.sub(r"(야간|주간|정원내|정원외|5년제|수석장학금|장학금)$", "", s)
+    s = _re.sub(r"(야간|주간|정원내|정원외|5년제|수석장학금|장학금|\d+)$", "", s)
     return s
 
 
 def _base_unit(nm):
     """캠퍼스 및 괄호 부가정보를 완전히 제거한 순수 학과명."""
     import re as _re
-    s = nm or ""
-    s = _re.sub(r"\(.*?\)", "", s)
+    if not nm:
+        return ""
+    s = _re.sub(r"\(.*?\)", "", nm)
     s = _re.sub(r"\[.*?\]", "", s)
     return _norm_unit(s)
+
+
+def _extract_subunits(nm):
+    """(전공) 괄호 안의 세부전공 또는 단과대 분리 학과명 목록 추출."""
+    import re as _re
+    res = []
+    # 1. 괄호 안의 텍스트
+    for m in _re.findall(r"\((.*?)\)", nm or ""):
+        m_clean = _norm_unit(m)
+        if len(m_clean) >= 2 and m_clean not in ["서울", "천안", "죽전", "공주", "예산", "국제", "다빈치", "미래", "세종", "5년제", "야간", "주간", "인문", "자연", "예체능"]:
+            res.append(m_clean)
+    # 2. 단과대 접두사 제거
+    no_college = _re.sub(r"^[가-힣]+대학\s*", "", nm or "")
+    if no_college != nm:
+        res.append(_norm_unit(no_college))
+        res.append(_base_unit(no_college))
+    # 3. 공백 분할 학과 (예: 스포츠청소년지도학과 노인체육복지학과)
+    words = (nm or "").split()
+    if len(words) >= 2:
+        for w in words:
+            w_c = _norm_unit(w)
+            if len(w_c) >= 3 and any(w_c.endswith(s) for s in ["과", "부", "전공"]):
+                res.append(w_c)
+    return res
 
 
 def _root_unit(nm):
@@ -85,6 +124,9 @@ def load_eodiga(code):
         base_idx.setdefault(k_base, []).extend(recs)
         if len(k_root) >= 2:
             root_idx.setdefault(k_root, []).extend(recs)
+        for sub in _extract_subunits(nm):
+            idx.setdefault(sub, []).extend(recs)
+            base_idx.setdefault(sub, []).extend(recs)
     d["_idx"] = idx
     d["_base_idx"] = base_idx
     d["_root_idx"] = root_idx
@@ -92,27 +134,44 @@ def load_eodiga(code):
 
 
 def _find_eodiga_recs(ed, unit_name):
-    """어디가 데이터에서 학과명에 대한 레코드를 다단계 탐색(정확 매칭 -> 기본 학과명 -> 별칭 -> 어근 매칭)."""
+    """어디가 데이터에서 학과명에 대한 레코드를 5단계 다단계 지능형 탐색."""
     if not ed or not unit_name:
         return None
+    idx = ed.get("_idx", {})
+    base_idx = ed.get("_base_idx", {})
+    root_idx = ed.get("_root_idx", {})
+    
+    # 1단계: 정규화 완전 일치
     k_norm = _norm_unit(unit_name)
-    if k_norm in ed.get("_idx", {}):
-        return ed["_idx"][k_norm]
+    if k_norm in idx:
+        return idx[k_norm]
+        
+    # 2단계: 괄호/캠퍼스 제거 기본 학과명 일치
     k_base = _base_unit(unit_name)
-    if k_base in ed.get("_base_idx", {}):
-        return ed["_base_idx"][k_base]
-    # 별칭 탐색
+    if k_base in base_idx:
+        return base_idx[k_base]
+        
+    # 3단계: 괄호 안 세부전공/단과대 분리 학과명 탐색
+    for sub in _extract_subunits(unit_name):
+        if sub in idx:
+            return idx[sub]
+        if sub in base_idx:
+            return base_idx[sub]
+            
+    # 4단계: 별칭 사전 매칭
     alias = _UNIT_ALIASES.get(k_norm) or _UNIT_ALIASES.get(k_base)
     if alias:
         a_norm = _norm_unit(alias)
-        if a_norm in ed.get("_idx", {}):
-            return ed["_idx"][a_norm]
-        if a_norm in ed.get("_base_idx", {}):
-            return ed["_base_idx"][a_norm]
+        if a_norm in idx:
+            return idx[a_norm]
+        if a_norm in base_idx:
+            return base_idx[a_norm]
+            
+    # 5단계: 어근(Root) 일치
     k_root = _root_unit(unit_name)
-    if len(k_root) >= 2 and k_root in ed.get("_root_idx", {}):
-        return ed["_root_idx"][k_root]
-    return None
+    if len(k_root) >= 2 and k_root in root_idx:
+        return root_idx[k_root]
+        
     return None
 
 
