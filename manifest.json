@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-28 12:35",
+  "generated": "2026-08-28 12:54",
   "app_version": "b6c83b762b95",
   "app_modules": [
     "assemble.py",
@@ -18,13 +18,13 @@
       "code": "ajou",
       "name": "아주대학교",
       "year": 2027,
-      "units": 77
+      "units": 122
     },
     {
       "code": "cau",
       "name": "중앙대학교",
       "year": 2027,
-      "units": 189
+      "units": 202
     },
     {
       "code": "chungbuk",
@@ -42,13 +42,13 @@
       "code": "dankook",
       "name": "단국대학교",
       "year": 2027,
-      "units": 316
+      "units": 366
     },
     {
       "code": "dongguk",
       "name": "동국대학교(서울)",
       "year": 2027,
-      "units": 270
+      "units": 368
     },
     {
       "code": "ewha",
@@ -66,7 +66,7 @@
       "code": "hanyang",
       "name": "한양대학교(서울)",
       "year": 2027,
-      "units": 136
+      "units": 197
     },
     {
       "code": "hufs",
@@ -84,7 +84,7 @@
       "code": "knsu",
       "name": "한국체육대학교",
       "year": 2027,
-      "units": 234
+      "units": 241
     },
     {
       "code": "kongju",
@@ -96,7 +96,7 @@
       "code": "mokwon",
       "name": "목원대학교",
       "year": 2027,
-      "units": 151
+      "units": 175
     },
     {
       "code": "paichai",
@@ -126,13 +126,13 @@
       "code": "woosong",
       "name": "우송대학교",
       "year": 2027,
-      "units": 123
+      "units": 170
     },
     {
       "code": "yonsei",
       "name": "연세대학교(서울)",
       "year": 2027,
-      "units": 202
+      "units": 241
     }
   ]
 }
