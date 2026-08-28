@@ -1182,22 +1182,13 @@ class Lite(ctk.CTk):
         if r.get("count"): info += f"  ·  정원 {r['count']}명"
         if r.get("college"): info += f"  ·  {r['college']}"
         u_name = r.get("unit", "")
-        sym_badges = []
-        if "*" in u_name or "†" in u_name:
-            sym_badges.append("🎓 교직과정 설치학과")
-        if "★" in u_name or "◆" in u_name:
-            sym_badges.append("🚀 첨단·신설학과")
-        if "**" in u_name or "***" in u_name:
-            sym_badges.append("⚡ 별도 수능최저/특수선발")
-
-        if sym_badges:
+        if any(sym in u_name for sym in ["*", "†", "★", "◆", "※"]):
             badge_row = ctk.CTkFrame(head, fg_color="transparent")
             badge_row.pack(anchor="w", padx=20, pady=(0, 8))
-            for b_txt in sym_badges:
-                b_frame = ctk.CTkFrame(badge_row, fg_color=C["card2"], corner_radius=6)
-                b_frame.pack(side="left", padx=(0, 6))
-                ctk.CTkLabel(b_frame, text=b_txt, font=("Malgun Gothic", 11, "bold"),
-                             text_color=C["blue"]).pack(padx=8, pady=2)
+            b_frame = ctk.CTkFrame(badge_row, fg_color=C["card2"], corner_radius=6)
+            b_frame.pack(side="left")
+            ctk.CTkLabel(b_frame, text="📌 대학 모집요강 표 세부 각주(Footnote) 대상 학과 (하단 '출처 원문 보기'에서 대학별 원문 확인 가능)",
+                         font=("Malgun Gothic", 11, "bold"), text_color=C["blue"]).pack(padx=8, pady=3)
 
         ctk.CTkLabel(head, text=info, font=("Malgun Gothic", 12), text_color=C["muted"]
                      ).pack(anchor="w", padx=20, pady=(0, 12))
