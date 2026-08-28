@@ -540,7 +540,7 @@ class Lite(ctk.CTk):
             ea = self._mini_entry(row, 48, ph="A/B"); ea.pack(side="left", padx=3); self.ach_entries[id(subj)] = ea
             er = self._mini_entry(row, 48, ph="점수"); er.pack(side="left", padx=3); self.raw_entries[id(subj)] = er
             eu = self._mini_entry(row, 48, ph="시수"); eu.pack(side="left", padx=3); self.unit_entries[id(subj)] = eu
-            for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self.recompute())
+            for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
         self.elec_frame = ctk.CTkFrame(c, fg_color="transparent")
         self.elec_frame.pack(fill="x", padx=16, pady=(2, 4))
         self._rebuild_electives()
@@ -572,7 +572,7 @@ class Lite(ctk.CTk):
             ctk.CTkLabel(cell, text=a, width=48, font=(FONT, 12),
                          text_color=C["text"]).pack(side="left")
             e = self._mini_entry(cell, 64); e.insert(0, str(su[a])); e.pack(side="left", padx=6)
-            e.bind("<KeyRelease>", lambda _=None: self.recompute()); self.suneung_entries[a] = e
+            e.bind("<KeyRelease>", lambda _=None: self._queue_recompute()); self.suneung_entries[a] = e
         mrow = ctk.CTkFrame(c, fg_color="transparent"); mrow.pack(fill="x", padx=16, pady=(2, 6))
         ctk.CTkLabel(mrow, text="수학 선택", font=(FONT, 12), text_color=C["text"]).pack(side="left")
         self.math_var = ctk.StringVar(value="미적분")
@@ -593,7 +593,7 @@ class Lite(ctk.CTk):
             ctk.CTkLabel(cell, text=a, width=36, font=(FONT, 12),
                          text_color=C["text"]).pack(side="left")
             e = self._mini_entry(cell, 66, "0~100"); e.pack(side="left", padx=4)
-            e.bind("<KeyRelease>", lambda _=None: self.recompute())
+            e.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
             self.baekbunwi_entries[a] = e
 
 
@@ -728,13 +728,13 @@ class Lite(ctk.CTk):
             row = ctk.CTkFrame(self.elec_frame, fg_color=C["card2"], corner_radius=8); row.pack(fill="x", pady=2)
             ne = ctk.CTkEntry(row, width=54, fg_color=C["card"], border_color=C["line"], font=(FONT, 12))
             ne.insert(0, subj["name"]); ne.pack(side="left", padx=(8,0), pady=4)
-            ne.bind("<KeyRelease>", lambda _=None, s=subj, w=ne: (s.update(name=w.get()), self.recompute()))
+            ne.bind("<KeyRelease>", lambda _=None, s=subj, w=ne: (s.update(name=w.get()), self._queue_recompute()))
             
             eg = self._mini_entry(row, 44, ph="등급"); eg.pack(side="left", padx=3); self.grade_entries[id(subj)] = eg
             ea = self._mini_entry(row, 44, ph="A/B"); ea.pack(side="left", padx=3); self.ach_entries[id(subj)] = ea
             er = self._mini_entry(row, 44, ph="점수"); er.pack(side="left", padx=3); self.raw_entries[id(subj)] = er
             eu = self._mini_entry(row, 44, ph="시수"); eu.pack(side="left", padx=3); self.unit_entries[id(subj)] = eu
-            for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self.recompute())
+            for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
             
             ctk.CTkButton(row, text="✕", width=24, height=24, fg_color=C["card"], hover_color=C["red"], font=(FONT, 11), text_color=C["muted"], command=lambda s=subj: self._remove_subject(s)).pack(side="right", padx=6)
         
@@ -770,13 +770,13 @@ class Lite(ctk.CTk):
             if is_2022: ne.configure(state="disabled")
             ne.pack(side="left", padx=(8, 4), pady=5)
             ne.bind("<KeyRelease>", lambda _=None, tt=t, w=ne: (tt.update(name=w.get()),
-                                                                self.recompute()))
+                                                                self._queue_recompute()))
             ctk.CTkLabel(row, text="등급", font=(FONT, 10), text_color=C["muted"]).pack(side="left")
             ge = self._mini_entry(row, 40); ge.insert(0, t["g"]); ge.pack(side="left", padx=3)
-            ge.bind("<KeyRelease>", lambda _=None: self.recompute())
+            ge.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
             ctk.CTkLabel(row, text="백분위", font=(FONT, 10), text_color=C["muted"]).pack(side="left")
             pe = self._mini_entry(row, 48, "0~100"); pe.insert(0, t.get("pct", ""))
-            pe.pack(side="left", padx=3); pe.bind("<KeyRelease>", lambda _=None: self.recompute())
+            pe.pack(side="left", padx=3); pe.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
             self.tamgu_widgets.append((t, ne, ge, pe))
             if not is_2022:
                 ctk.CTkButton(row, text="✕", width=24, height=24, fg_color=C["card"],
@@ -852,22 +852,32 @@ class Lite(ctk.CTk):
         self.recompute()
 
     def _apply_font_scale(self, delta):
-        self.font_scale = max(0.8, min(1.6, round(self.font_scale + delta, 2)))
-        if hasattr(self, "_font_timer") and self._font_timer:
-            self.after_cancel(self._font_timer)
-        self._font_timer = self.after(300, self._do_font_scale)
+        """실리 위주의 즉각적 폰트 조절 (렉 유발하는 set_widget_scaling 대신 초경량 Style 업데이트)."""
+        self.font_scale = max(0.8, min(1.6, round(self.font_scale + delta, 1)))
+        self._do_font_scale()
 
     def _do_font_scale(self):
         try:
-            ctk.set_widget_scaling(self.font_scale)
+            f_size = max(9, int(11 * self.font_scale))
+            h_size = max(10, int(11 * self.font_scale))
+            r_height = max(24, int(30 * self.font_scale))
+            style = ttk.Style()
+            style.configure("J.Treeview", font=("Malgun Gothic", f_size), rowheight=r_height)
+            style.configure("J.Treeview.Heading", font=("Malgun Gothic", h_size, "bold"))
         except Exception:
             pass
+
+    def _queue_recompute(self, ms=150):
+        """키 입력 시 연속 재계산 렉 방지 디바운싱."""
+        if hasattr(self, "_recompute_timer") and self._recompute_timer:
+            self.after_cancel(self._recompute_timer)
+        self._recompute_timer = self.after(ms, self.recompute)
 
     def _on_weight(self):
         for y, e in self.weight_entries.items():
             try: self.student["weights"][y] = max(0.0, float(e.get()))
             except ValueError: pass
-        self.recompute()
+        self._queue_recompute(100)
 
     def _on_univ_change(self, *_):
         uv = self.univ_var.get()
@@ -913,8 +923,10 @@ class Lite(ctk.CTk):
         self.canvas.pack(fill="x", padx=16, pady=(0, 12))
 
     def _draw_chart(self):
-        cv = self.canvas; cv.delete("all"); cv.update_idletasks()
-        W = cv.winfo_width() or 800
+        cv = self.canvas; cv.delete("all")
+        W = cv.winfo_width()
+        if W < 100:
+            W = 800
         cnt = {}
         for r in self.results:
             cnt[r["band"]] = cnt.get(r["band"], 0) + 1
@@ -966,7 +978,7 @@ class Lite(ctk.CTk):
             font=("Malgun Gothic", 12)).pack(side="left", padx=10)
         self.search = ctk.CTkEntry(inner, placeholder_text="학과 검색", width=160,
             fg_color=C["card2"], border_color=C["line"], font=("Malgun Gothic", 13))
-        self.search.pack(side="left"); self.search.bind("<KeyRelease>", lambda _=None: self.recompute())
+        self.search.pack(side="left"); self.search.bind("<KeyRelease>", lambda _=None: self._queue_recompute(120))
         self.only_ok = ctk.CTkCheckBox(inner, text="가능만", font=("Malgun Gothic", 12),
             command=self.recompute, fg_color=C["blue"]); self.only_ok.pack(side="right")
 
