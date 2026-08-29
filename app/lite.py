@@ -16,7 +16,7 @@ BASE = os.path.dirname(APP)
 PUBLISHED = os.environ.get("JINHAK_DATA") or os.path.join(BASE, "published")
 PAGES = os.path.join(PUBLISHED, "pages")
 sys.path.insert(0, APP)
-import engine, features
+import engine, features, meta
 
 C = {
     "bg": "#080c17", "card": "#111a2e", "card2": "#18233c", "muted": "#8a97b0",
@@ -139,7 +139,7 @@ class Lite(ctk.CTk):
             "weights": {"1": 2.0, "2": 4.0, "3": 4.0},
             "suneung": {"국어": 3, "수학": 3, "영어": 3, "한국사": 4, "수학선택": "미적분"},
         }
-        def _d(self=None): return {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
+        def _d(): return {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
         self.subjects = [{"name": s, "fixed": True, "kind": None, "grade": _d(), "ach": _d(), "raw": _d(), "unit": _d()}
                          for s in FIXED_SUBS]
         self.subjects += [{"name": "사회", "fixed": False, "kind": "사회", "grade": _d(), "ach": _d(), "raw": _d(), "unit": _d()},
@@ -1041,8 +1041,10 @@ class Lite(ctk.CTk):
         self.tree.configure(yscrollcommand=vs.set)
         self.tree.grid(row=0, column=0, sticky="nsew", padx=(10, 0), pady=10)
         vs.grid(row=0, column=1, sticky="ns", pady=10)
-        self.tree.bind("<Double-1>", self._on_double)
         self.tree.bind("<Button-1>", self._on_click_cell)
+        self.tree.bind("<Double-1>", self._on_double)
+        self.tree.bind("<Return>", self._on_key_select)
+        self.tree.bind("<space>", self._on_key_select)
 
         # 학과 특수기호 범례 안내 바
         legend = ctk.CTkFrame(card, fg_color="transparent")
@@ -1066,10 +1068,10 @@ class Lite(ctk.CTk):
             if not nm:
                 continue
             weighted_sum = 0
-            subject_weight_sum = 0
             total_units = 0
             valid_semesters = 0
             yearly_grades = {}
+            subject_weight_sum = 0.0
             for y in yrs:
                 s1, s2 = f"{y}-1", f"{y}-2"
                 
@@ -1180,158 +1182,194 @@ class Lite(ctk.CTk):
             text=str(sum(1 for r in self.results if r["_verdict"] == "지원가능")))
 
     def _on_click_cell(self, event):
-        col = self.tree.identify_column(event.x); rowid = self.tree.identify_row(event.y)
-        if rowid and col == "#7":
-            self.open_source(self.results[int(rowid)])
+        # '출처' 열 단일클릭 시 원문 페이지 열기
+        col = self.tree.identify_column(event.x)
+        rowid = self.tree.identify_row(event.y)
+        if not rowid:
+            return
+        try:
+            idx = int(rowid)
+            if 0 <= idx < len(self.results):
+                r = self.results[idx]
+                if col == "#7":
+                    self.open_source(r)
+        except Exception:
+            pass
 
     def _on_double(self, event):
-        col = self.tree.identify_column(event.x); rowid = self.tree.identify_row(event.y)
-        if rowid and col != "#7":
-            self.show_detail(self.results[int(rowid)])
+        # 더블클릭 시 상세 정보 창 열기 (출처 열 제외)
+        col = self.tree.identify_column(event.x)
+        rowid = self.tree.identify_row(event.y)
+        if not rowid:
+            return
+        try:
+            idx = int(rowid)
+            if 0 <= idx < len(self.results):
+                r = self.results[idx]
+                if col != "#7":
+                    self.show_detail(r)
+        except Exception:
+            pass
+
+    def _on_key_select(self, event=None):
+        sel = self.tree.selection()
+        if sel:
+            try:
+                idx = int(sel[0])
+                if 0 <= idx < len(self.results):
+                    self.show_detail(self.results[idx])
+            except Exception:
+                pass
 
     # ---------- 상세 ----------
     def show_detail(self, r):
-        same = [x for x in self.results if x["univ"] == r["univ"] and x["unit"] == r["unit"]] or [r]
-        win = self._top(); win.title(f"{r['univ']} · {r['unit']}")
-        win.geometry("760x680"); win.configure(fg_color=C["bg"]); win.resizable(True, True)
-        head = ctk.CTkFrame(win, fg_color=C["card"], corner_radius=0); head.pack(fill="x")
-        ctk.CTkLabel(head, text=r["univ"], font=("Malgun Gothic", 14), text_color=C["muted"]
-                     ).pack(anchor="w", padx=20, pady=(14, 0))
-        ctk.CTkLabel(head, text=r["unit"], font=("Malgun Gothic", 22, "bold"), text_color=C["text"]
-                     ).pack(anchor="w", padx=20, pady=(0, 4))
-        info = f"{r.get('gyeyeol') or '-'}계열"
-        if r.get("count"): info += f"  ·  정원 {r['count']}명"
-        if r.get("college"): info += f"  ·  {r['college']}"
-        u_name = r.get("unit", "")
-        if any(sym in u_name for sym in ["*", "†", "★", "◆", "※"]):
-            badge_row = ctk.CTkFrame(head, fg_color="transparent")
-            badge_row.pack(anchor="w", padx=20, pady=(0, 8))
-            b_frame = ctk.CTkFrame(badge_row, fg_color=C["card2"], corner_radius=6)
-            b_frame.pack(side="left")
-            ctk.CTkLabel(b_frame, text="📌 대학 모집요강 표 세부 각주(Footnote) 대상 학과 (하단 '출처 원문 보기'에서 대학별 원문 확인 가능)",
-                         font=("Malgun Gothic", 11, "bold"), text_color=C["blue"]).pack(padx=8, pady=3)
+        try:
+            same = [x for x in self.results if x["univ"] == r["univ"] and x["unit"] == r["unit"]] or [r]
+            win = self._top(); win.title(f"{r['univ']} · {r['unit']}")
+            win.geometry("760x680"); win.configure(fg_color=C["bg"]); win.resizable(True, True)
+            head = ctk.CTkFrame(win, fg_color=C["card"], corner_radius=0); head.pack(fill="x")
+            ctk.CTkLabel(head, text=r["univ"], font=("Malgun Gothic", 14), text_color=C["muted"]
+                         ).pack(anchor="w", padx=20, pady=(14, 0))
+            ctk.CTkLabel(head, text=r["unit"], font=("Malgun Gothic", 22, "bold"), text_color=C["text"]
+                         ).pack(anchor="w", padx=20, pady=(0, 4))
+            info = f"{r.get('gyeyeol') or '-'}계열"
+            if r.get("count"): info += f"  ·  정원 {r['count']}명"
+            if r.get("college"): info += f"  ·  {r['college']}"
+            u_name = r.get("unit", "")
+            if any(sym in u_name for sym in ["*", "†", "★", "◆", "※"]):
+                badge_row = ctk.CTkFrame(head, fg_color="transparent")
+                badge_row.pack(anchor="w", padx=20, pady=(0, 8))
+                b_frame = ctk.CTkFrame(badge_row, fg_color=C["card2"], corner_radius=6)
+                b_frame.pack(side="left")
+                ctk.CTkLabel(b_frame, text="📌 대학 모집요강 표 세부 각주(Footnote) 대상 학과 (하단 '출처 원문 보기'에서 대학별 원문 확인 가능)",
+                             font=("Malgun Gothic", 11, "bold"), text_color=C["blue"]).pack(padx=8, pady=3)
 
-        ctk.CTkLabel(head, text=info, font=("Malgun Gothic", 12), text_color=C["muted"]
-                     ).pack(anchor="w", padx=20, pady=(0, 12))
-        body = ctk.CTkScrollableFrame(win, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=12, pady=12)
-        ctk.CTkLabel(body, text="진학 방법 (전형별)", font=("Malgun Gothic", 14, "bold"),
-                     text_color=C["text"]).pack(anchor="w", pady=(0, 8))
-        for x in same:
-            card = ctk.CTkFrame(body, fg_color=C["card"], corner_radius=14,
-                                border_width=1, border_color=C["line"]); card.pack(fill="x", pady=6)
-            top = ctk.CTkFrame(card, fg_color="transparent"); top.pack(fill="x", padx=16, pady=(12, 2))
-            ctk.CTkLabel(top, text=f"{x['category']}전형", font=("Malgun Gothic", 15, "bold"),
-                         text_color=C["blue"]).pack(side="left")
-            ctk.CTkLabel(top, text=f"  {x['band']}", font=("Malgun Gothic", 13, "bold"),
-                         text_color=BAND_COLOR.get(x["band"], C["gray"])).pack(side="left", padx=6)
-            ctk.CTkLabel(top, text=x["_verdict"], font=("Malgun Gothic", 12),
-                         text_color=C["muted"]).pack(side="right")
-            req = x.get("rule_sentence") or x.get("rule_label") or x["suneung"].get("label") \
-                or "수능최저 미적용(또는 정보 없음)"
-            
-            # 원문 3줄 요약 & 수험생 체크포인트
-            guide = meta.get_admission_guide(x.get("univ",""), x.get("category",""), x.get("track_name",""), req)
-            gbox = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=10)
-            gbox.pack(fill="x", padx=16, pady=(6, 4))
-            ctk.CTkLabel(gbox, text="📋 모집요강 핵심 요약 & 수험생 체크포인트",
-                         font=("Malgun Gothic", 12, "bold"), text_color=C["blue"]).pack(anchor="w", padx=12, pady=(6, 2))
-            ctk.CTkLabel(gbox, text=f"• 선발 방식: {guide['method']}",
-                         font=("Malgun Gothic", 11), text_color=C["text"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 1))
-            ctk.CTkLabel(gbox, text=f"• 수능 최저: {guide['suneung']}",
-                         font=("Malgun Gothic", 11), text_color=C["text"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 1))
-            for cp in guide["checkpoints"]:
-                ctk.CTkLabel(gbox, text=f"• 체크사항: {cp}",
-                             font=("Malgun Gothic", 11, "bold"), text_color=C["green"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 3))
+            ctk.CTkLabel(head, text=info, font=("Malgun Gothic", 12), text_color=C["muted"]
+                         ).pack(anchor="w", padx=20, pady=(0, 12))
+            body = ctk.CTkScrollableFrame(win, fg_color="transparent")
+            body.pack(fill="both", expand=True, padx=12, pady=12)
+            ctk.CTkLabel(body, text="진학 방법 (전형별)", font=("Malgun Gothic", 14, "bold"),
+                         text_color=C["text"]).pack(anchor="w", pady=(0, 8))
+            for x in same:
+                card = ctk.CTkFrame(body, fg_color=C["card"], corner_radius=14,
+                                    border_width=1, border_color=C["line"]); card.pack(fill="x", pady=6)
+                top = ctk.CTkFrame(card, fg_color="transparent"); top.pack(fill="x", padx=16, pady=(12, 2))
+                ctk.CTkLabel(top, text=f"{x['category']}전형", font=("Malgun Gothic", 15, "bold"),
+                             text_color=C["blue"]).pack(side="left")
+                ctk.CTkLabel(top, text=f"  {x['band']}", font=("Malgun Gothic", 13, "bold"),
+                             text_color=BAND_COLOR.get(x["band"], C["gray"])).pack(side="left", padx=6)
+                ctk.CTkLabel(top, text=x["_verdict"], font=("Malgun Gothic", 12),
+                             text_color=C["muted"]).pack(side="right")
+                req = x.get("rule_sentence") or x.get("rule_label") or x["suneung"].get("label") \
+                    or "수능최저 미적용(또는 정보 없음)"
+                
+                # 원문 3줄 요약 & 수험생 체크포인트
+                guide = meta.get_admission_guide(x.get("univ",""), x.get("category",""), x.get("track_name",""), req)
+                gbox = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=10)
+                gbox.pack(fill="x", padx=16, pady=(6, 4))
+                ctk.CTkLabel(gbox, text="📋 모집요강 핵심 요약 & 수험생 체크포인트",
+                             font=("Malgun Gothic", 12, "bold"), text_color=C["blue"]).pack(anchor="w", padx=12, pady=(6, 2))
+                ctk.CTkLabel(gbox, text=f"• 선발 방식: {guide['method']}",
+                             font=("Malgun Gothic", 11), text_color=C["text"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 1))
+                ctk.CTkLabel(gbox, text=f"• 수능 최저: {guide['suneung']}",
+                             font=("Malgun Gothic", 11), text_color=C["text"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 1))
+                for cp in guide["checkpoints"]:
+                    ctk.CTkLabel(gbox, text=f"• 체크사항: {cp}",
+                                 font=("Malgun Gothic", 11, "bold"), text_color=C["green"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 3))
 
-            ctk.CTkLabel(card, text="수능최저 세부: " + req, font=("Malgun Gothic", 11), text_color=C["muted"],
-                         wraplength=630, justify="left").pack(anchor="w", padx=16, pady=(4, 2))
-            ctk.CTkLabel(card, text="내 점수 충족 여부: " + x["suneung"].get("detail", "-"),
-                         font=("Malgun Gothic", 11, "bold"), text_color=C["text"], wraplength=630,
-                         justify="left").pack(anchor="w", padx=16, pady=(0, 2))
-            if features.IPGYEOL_ENABLED and x.get("ipgyeol_naesin"):
-                if x.get("ipgyeol_low") is not None:
-                    ip_txt = (f"📊 합격 내신컷: {x['ipgyeol_naesin']}등급  "
-                              f"(합격 최저 {x['ipgyeol_low']}등급, {x.get('ipgyeol_type','')})")
-                else:
-                    ip_txt = f"📊 합격 내신컷: {x['ipgyeol_naesin']}등급  ({x.get('ipgyeol_type','')})"
-                ctk.CTkLabel(card, text=ip_txt,
-                             font=("Malgun Gothic", 12, "bold"), text_color=C["green"]
-                             ).pack(anchor="w", padx=16, pady=(2, 0))
-            # 어디가(대입정보포털) 전년도 결과공개
-            ed = x.get("eodiga") or []
-            if ed:
-                yr = x.get("eodiga_year") or ""
-                box = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=10)
-                box.pack(fill="x", padx=16, pady=(4, 4))
-                ctk.CTkLabel(box, text=f"🔎 어디가 전년도({yr}) 결과공개 · 공식 발표",
-                             font=("Malgun Gothic", 12, "bold"), text_color=C["blue"]
-                             ).pack(anchor="w", padx=12, pady=(8, 2))
-                for e in ed[:8]:
-                    lab = (e.get("label") or "").replace("학생부교과", "").replace("학생부종합", "종합")
-                    parts = [lab.strip("()") or "전형"]
-                    if e.get("competition") is not None:
-                        parts.append(f"경쟁률 {e['competition']}:1")
-                    if e.get("chungwon") is not None:
-                        parts.append(f"충원 {int(e['chungwon'])}명")
-                    if e.get("grade70") is not None:
-                        cut = f"70%컷 {e['grade70']}등급"
-                        if e.get("score70") is not None:
-                            cut += f"(환산 {e['score70']})"
-                        if e.get("grade50") is not None:
-                            cut += f" · 50%컷 {e['grade50']}등급"
-                        parts.append(cut)
+                ctk.CTkLabel(card, text="수능최저 세부: " + req, font=("Malgun Gothic", 11), text_color=C["muted"],
+                             wraplength=630, justify="left").pack(anchor="w", padx=16, pady=(4, 2))
+                ctk.CTkLabel(card, text="내 점수 충족 여부: " + x["suneung"].get("detail", "-"),
+                             font=("Malgun Gothic", 11, "bold"), text_color=C["text"], wraplength=630,
+                             justify="left").pack(anchor="w", padx=16, pady=(0, 2))
+                if features.IPGYEOL_ENABLED and x.get("ipgyeol_naesin"):
+                    if x.get("ipgyeol_low") is not None:
+                        ip_txt = (f"📊 합격 내신컷: {x['ipgyeol_naesin']}등급  "
+                                  f"(합격 최저 {x['ipgyeol_low']}등급, {x.get('ipgyeol_type','')})")
                     else:
-                        parts.append("입시결과 미제출")
-                    ctk.CTkLabel(box, text="• " + "  ·  ".join(parts),
-                                 font=("Malgun Gothic", 11), text_color=C["text"],
-                                 wraplength=620, justify="left").pack(anchor="w", padx=14, pady=(0, 1))
-                ctk.CTkLabel(box, text="※ 70%컷=합격자 70% 지점 성적(낮을수록 우수). 전년도 기준·참고용.",
-                             font=("Malgun Gothic", 10), text_color=C["muted"]
-                             ).pack(anchor="w", padx=14, pady=(2, 8))
-            # 정시(수능 백분위) 결과
-            js = x.get("js") or {}
-            if js:
-                yr = x.get("eodiga_year") or js.get("year") or ""
-                box = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=10)
-                box.pack(fill="x", padx=16, pady=(4, 4))
-                ctk.CTkLabel(box, text=f"🎯 어디가 전년도({yr}) 정시 결과 · 수능 백분위 기준",
-                             font=("Malgun Gothic", 12, "bold"), text_color=C["blue"]
-                             ).pack(anchor="w", padx=12, pady=(8, 2))
-                if js.get("pct_avg70") is not None:
-                    ctk.CTkLabel(box, text=f"• 평균백분위 70%컷: {js['pct_avg70']}  "
-                                 f"(50%컷 {js.get('pct_avg50','-')})  ·  환산 {js.get('score70','-')}",
+                        ip_txt = f"📊 합격 내신컷: {x['ipgyeol_naesin']}등급  ({x.get('ipgyeol_type','')})"
+                    ctk.CTkLabel(card, text=ip_txt,
                                  font=("Malgun Gothic", 12, "bold"), text_color=C["green"]
-                                 ).pack(anchor="w", padx=14, pady=(0, 1))
-                    sub = []
-                    if js.get("pct_kor70") is not None: sub.append(f"국어 {js['pct_kor70']}")
-                    if js.get("pct_math70") is not None: sub.append(f"수학 {js['pct_math70']}")
-                    if js.get("pct_tam70") is not None: sub.append(f"탐구 {js['pct_tam70']}")
-                    if js.get("eng70") is not None: sub.append(f"영어 {int(js['eng70'])}등급")
-                    if js.get("hist70") is not None: sub.append(f"한국사 {int(js['hist70'])}등급")
-                    if sub:
-                        ctk.CTkLabel(box, text="• 영역별 70%컷 백분위: " + "  ·  ".join(sub),
-                                     font=("Malgun Gothic", 11), text_color=C["text"]
+                                 ).pack(anchor="w", padx=16, pady=(2, 0))
+                # 어디가(대입정보포털) 전년도 결과공개
+                ed = x.get("eodiga") or []
+                if ed:
+                    yr = x.get("eodiga_year") or ""
+                    box = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=10)
+                    box.pack(fill="x", padx=16, pady=(4, 4))
+                    ctk.CTkLabel(box, text=f"🔎 어디가 전년도({yr}) 결과공개 · 공식 발표",
+                                 font=("Malgun Gothic", 12, "bold"), text_color=C["blue"]
+                                 ).pack(anchor="w", padx=12, pady=(8, 2))
+                    for e in ed[:8]:
+                        lab = (e.get("label") or "").replace("학생부교과", "").replace("학생부종합", "종합")
+                        parts = [lab.strip("()") or "전형"]
+                        if e.get("competition") is not None:
+                            parts.append(f"경쟁률 {e['competition']}:1")
+                        if e.get("chungwon") is not None:
+                            parts.append(f"충원 {int(e['chungwon'])}명")
+                        if e.get("grade70") is not None:
+                            cut = f"70%컷 {e['grade70']}등급"
+                            if e.get("score70") is not None:
+                                cut += f"(환산 {e['score70']})"
+                            if e.get("grade50") is not None:
+                                cut += f" · 50%컷 {e['grade50']}등급"
+                            parts.append(cut)
+                        else:
+                            parts.append("입시결과 미제출")
+                        ctk.CTkLabel(box, text="• " + "  ·  ".join(parts),
+                                     font=("Malgun Gothic", 11), text_color=C["text"],
+                                     wraplength=620, justify="left").pack(anchor="w", padx=14, pady=(0, 1))
+                    ctk.CTkLabel(box, text="※ 70%컷=합격자 70% 지점 성적(낮을수록 우수). 전년도 기준·참고용.",
+                                 font=("Malgun Gothic", 10), text_color=C["muted"]
+                                 ).pack(anchor="w", padx=14, pady=(2, 8))
+                # 정시(수능 백분위) 결과
+                js = x.get("js") or {}
+                if js:
+                    yr = x.get("eodiga_year") or js.get("year") or ""
+                    box = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=10)
+                    box.pack(fill="x", padx=16, pady=(4, 4))
+                    ctk.CTkLabel(box, text=f"🎯 어디가 전년도({yr}) 정시 결과 · 수능 백분위 기준",
+                                 font=("Malgun Gothic", 12, "bold"), text_color=C["blue"]
+                                 ).pack(anchor="w", padx=12, pady=(8, 2))
+                    if js.get("pct_avg70") is not None:
+                        ctk.CTkLabel(box, text=f"• 평균백분위 70%컷: {js['pct_avg70']}  "
+                                     f"(50%컷 {js.get('pct_avg50','-')})  ·  환산 {js.get('score70','-')}",
+                                     font=("Malgun Gothic", 12, "bold"), text_color=C["green"]
                                      ).pack(anchor="w", padx=14, pady=(0, 1))
-                meta_p = []
-                if js.get("competition") is not None: meta_p.append(f"경쟁률 {js['competition']}:1")
-                if js.get("chungwon") is not None: meta_p.append(f"충원 {int(js['chungwon'])}명")
-                if js.get("recruit") is not None: meta_p.append(f"모집 {int(js['recruit'])}명")
-                if meta_p:
-                    ctk.CTkLabel(box, text="• " + "  ·  ".join(meta_p),
-                                 font=("Malgun Gothic", 11), text_color=C["muted"]
-                                 ).pack(anchor="w", padx=14, pady=(0, 1))
-                ctk.CTkLabel(box, text="※ 백분위=높을수록 우수. 왼쪽에 수능 백분위를 넣으면 자동 비교됩니다.",
-                             font=("Malgun Gothic", 10), text_color=C["muted"]
-                             ).pack(anchor="w", padx=14, pady=(2, 8))
-            ctk.CTkLabel(card, text=f"밴드 근거: {x.get('band_basis','-')}  ·  매칭 {x.get('match','-')}",
-                         font=("Malgun Gothic", 11), text_color=C["muted"]).pack(anchor="w", padx=16, pady=(0, 4))
-            if x.get("sources"):
-                n = len(x["sources"])
-                ctk.CTkButton(card, text=f"📄 출처 원문 보기 (모집요강·어디가 {n}개, 해당 학과 강조)",
-                              font=("Malgun Gothic", 11), height=28, fg_color=C["card2"],
-                              hover_color=C["line"], command=lambda xx=x: self.open_source(xx)
-                              ).pack(anchor="w", padx=16, pady=(0, 12))
+                        sub = []
+                        if js.get("pct_kor70") is not None: sub.append(f"국어 {js['pct_kor70']}")
+                        if js.get("pct_math70") is not None: sub.append(f"수학 {js['pct_math70']}")
+                        if js.get("pct_tam70") is not None: sub.append(f"탐구 {js['pct_tam70']}")
+                        if js.get("eng70") is not None: sub.append(f"영어 {int(js['eng70'])}등급")
+                        if js.get("hist70") is not None: sub.append(f"한국사 {int(js['hist70'])}등급")
+                        if sub:
+                            ctk.CTkLabel(box, text="• 영역별 70%컷 백분위: " + "  ·  ".join(sub),
+                                         font=("Malgun Gothic", 11), text_color=C["text"]
+                                         ).pack(anchor="w", padx=14, pady=(0, 1))
+                    meta_p = []
+                    if js.get("competition") is not None: meta_p.append(f"경쟁률 {js['competition']}:1")
+                    if js.get("chungwon") is not None: meta_p.append(f"충원 {int(js['chungwon'])}명")
+                    if js.get("recruit") is not None: meta_p.append(f"모집 {int(js['recruit'])}명")
+                    if meta_p:
+                        ctk.CTkLabel(box, text="• " + "  ·  ".join(meta_p),
+                                     font=("Malgun Gothic", 11), text_color=C["muted"]
+                                     ).pack(anchor="w", padx=14, pady=(0, 1))
+                    ctk.CTkLabel(box, text="※ 백분위=높을수록 우수. 왼쪽에 수능 백분위를 넣으면 자동 비교됩니다.",
+                                 font=("Malgun Gothic", 10), text_color=C["muted"]
+                                 ).pack(anchor="w", padx=14, pady=(2, 8))
+                ctk.CTkLabel(card, text=f"밴드 근거: {x.get('band_basis','-')}  ·  매칭 {x.get('match','-')}",
+                             font=("Malgun Gothic", 11), text_color=C["muted"]).pack(anchor="w", padx=16, pady=(0, 4))
+                if x.get("sources"):
+                    n = len(x["sources"])
+                    ctk.CTkButton(card, text=f"📄 출처 원문 보기 (모집요강·어디가 {n}개, 해당 학과 강조)",
+                                  font=("Malgun Gothic", 11), height=28, fg_color=C["card2"],
+                                  hover_color=C["line"], command=lambda xx=x: self.open_source(xx)
+                                  ).pack(anchor="w", padx=16, pady=(0, 12))
+        except Exception as e:
+            err_box = ctk.CTkFrame(win, fg_color=C["card"], corner_radius=10)
+            err_box.pack(fill="x", padx=16, pady=16)
+            ctk.CTkLabel(err_box, text=f"상세 정보를 불러오는 중 오류가 발생했습니다:\n{e}",
+                         font=("Malgun Gothic", 12), text_color=C["red"]).pack(padx=16, pady=16)
 
     def open_source(self, r):
         srcs = r.get("sources") or []
