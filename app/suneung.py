@@ -13,8 +13,10 @@ def _tamgu_grade(student, mode):
     g = [x for x in g if isinstance(x, (int, float))]
     if not g:
         return None
-    if mode == "avg2" and len(g) == 2:
-        return sum(g) / 2.0
+    if mode == "avg2":
+        if len(g) >= 2:
+            return sum(g[:2]) / 2.0
+        return None  # 2과목 평균 요구 시 1과목만 있으면 성적 부족(None)
     return min(g)  # best1 (상위 1과목)
 
 
@@ -78,14 +80,36 @@ def evaluate(rule, student):
             return {"status": "unknown", "margin": None, "label": label,
                     "detail": f"필수 반영영역 '{req}' 성적/조건 미충족(예: 수학 선택과목 제한)"}
 
-    if t == "sum_top_n":
-        n = rule["n"]
+    if t in ("sum_top_n", "sum"):
+        n = rule.get("n", 2)
         mx = rule["max"]
-        # 필수영역 우선 포함
+        
+        # 1) required_any (예: 국·수 중 1개 포함) 처리: 해당 목록 중 성적 가장 좋은 1개를 우선 확보
+        req_any = rule.get("required_any") or []
+        req_any_chosen = None
+        if req_any:
+            any_cands = [(a, grades[a]) for a in req_any if a in grades]
+            if not any_cands:
+                return {"status": "unknown", "margin": None, "label": label,
+                        "detail": f"필수 선택영역({', '.join(req_any)} 중 1개) 성적 미충족"}
+            any_cands.sort(key=lambda x: x[1])
+            req_any_chosen = any_cands[0]
+
+        # 2) 필수영역 우선 포함
         chosen = []
         used = set()
         for req in required:
             chosen.append((req, grades[req])); used.add(req)
+            
+        if req_any_chosen and req_any_chosen[0] not in used:
+            chosen.append(req_any_chosen)
+            used.add(req_any_chosen[0])
+
+        # P2-4: required가 n보다 많으면 성적 우수순 n개로 방어
+        if len(chosen) > n:
+            chosen.sort(key=lambda x: x[1])
+            chosen = chosen[:n]
+
         rest = sorted([(a, grades[a]) for a in grades if a not in used],
                       key=lambda x: x[1])
         for a, g in rest:
@@ -105,15 +129,27 @@ def evaluate(rule, student):
 
     if t == "each_max":
         # n개 영역이 각각 max 이내
-        n = rule["n"]; mx = rule["max"]
-        good = sorted([g for g in grades.values()])
-        if len(good) < n:
-            return {"status": "unknown", "margin": None, "label": label,
-                    "detail": f"반영영역 부족({len(good)}/{n})"}
-        picked = good[:n]
-        ok = all(g <= mx + 1e-9 for g in picked)
-        return {"status": "pass" if ok else "fail", "margin": None, "label": label,
-                "detail": f"{n}개 영역 각 {mx}등급 이내 → {'충족' if ok else '미충족'}"}
+        n = rule.get("n", len(grades))
+        mx = rule["max"]
+        if required:
+            target_grades = [(req, grades[req]) for req in required if req in grades]
+            if len(target_grades) < len(required):
+                return {"status": "unknown", "margin": None, "label": label,
+                        "detail": "필수 반영영역 성적 부족"}
+        else:
+            good = sorted([(a, g) for a, g in grades.items()], key=lambda x: x[1])
+            if len(good) < n:
+                return {"status": "unknown", "margin": None, "label": label,
+                        "detail": f"반영영역 부족({len(good)}/{n})"}
+            target_grades = good[:n]
+
+        worst_g = max(g for _, g in target_grades)
+        ok = all(g <= mx + 1e-9 for _, g in target_grades)
+        picked = ", ".join(f"{a}{_fmt(g)}" for a, g in target_grades)
+        return {"status": "pass" if ok else "fail",
+                "margin": round(mx - worst_g, 2),
+                "label": label,
+                "detail": f"각 {mx}등급 이내[{picked}] → {'충족' if ok else '미충족'}"}
 
     if t == "count_le":
         # max등급 이내 영역이 n개 이상

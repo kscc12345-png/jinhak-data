@@ -34,7 +34,7 @@ def _get(student_gyogwa, subj, univ=None):
         return v.get("grade"), v.get("units", 1)
     return v, 1  # 단위 미제공 → 동일가중
 
-def apply_selection_rules(student_gyogwa, subjects, rules):
+def apply_selection_rules(student_gyogwa, subjects, rules, univ=None):
     filtered_subjects = list(subjects)
     for rule in rules:
         group = rule.get("group")
@@ -48,7 +48,7 @@ def apply_selection_rules(student_gyogwa, subjects, rules):
                 
         if pick == "best" and group_subjects:
             def _get_grade(s):
-                g, _ = _get(student_gyogwa, s)
+                g, _ = _get(student_gyogwa, s, univ=univ)
                 return g if g is not None else 999
             
             group_subjects.sort(key=_get_grade)
@@ -100,7 +100,7 @@ def evaluate(track, student_gyogwa, univ=None):
         return {"applies": False, "detail": "교과 미반영 전형"}
     subs = g["subjects"]
     if "selection_rules" in g:
-        subs = apply_selection_rules(student_gyogwa, subs, g["selection_rules"])
+        subs = apply_selection_rules(student_gyogwa, subs, g["selection_rules"], univ=univ)
     avg, used = reflected_avg(student_gyogwa, subs, univ=univ)
     if avg is None:
         return {"applies": True, "avg_grade": None, "score": None,

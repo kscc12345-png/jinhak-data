@@ -72,7 +72,7 @@ def admission_band(su, gy, student, unit):
     # 입결 기반 정밀 판정(있을 때만, 기능 활성화 시)
     cut = (unit.get("ipgyeol_naesin") if unit else None) if features.IPGYEOL_ENABLED else None
     navg = _naesin_avg(student)
-    if cut and navg is not None:
+    if cut is not None and navg is not None:
         diff = cut - navg  # +면 학생이 컷보다 우수
         if diff >= 0.5:
             return ("안정", 90, f"내신 {navg:.2f} vs 컷 {cut} (여유 {diff:+.2f})")

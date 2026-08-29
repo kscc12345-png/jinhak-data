@@ -2,10 +2,11 @@
   "admin_email": "kscc12345@gmail.com",
   "update_url": "https://raw.githubusercontent.com/kscc12345-png/jinhak-data/main",
   "protected": false,
-  "version": "1.3.4",
-  "version_code": 134,
+  "version": "1.3.5",
+  "version_code": 135,
+  "banner_text": "",
   "banner_url": "",
   "banner_link": "",
   "request_topic": "jinhak-req-kscc12345-x9f3q2",
-  "generated": "2026-08-29 13:56"
+  "generated": "2026-08-29 14:12"
 }
