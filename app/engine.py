@@ -43,14 +43,21 @@ def convert_5to9(g):
 
 
 def _naesin_avg(student):
-    vals = []
+    num = den = 0.0
     for k, v in (student.get("naesin") or {}).items():
         if k == "한국사":
             continue
-        g = v.get("grade") if isinstance(v, dict) else v
+        g = None
+        u = 1.0
+        if isinstance(v, dict):
+            g = v.get("grade")
+            u = float(v.get("units") or 1.0)
+        elif isinstance(v, (int, float)):
+            g = v
         if isinstance(g, (int, float)):
-            vals.append(g)
-    return sum(vals) / len(vals) if vals else None
+            num += g * u
+            den += u
+    return round(num / den, 3) if den > 0 else None
 
 
 # 밴드 정의: (라벨, 색)

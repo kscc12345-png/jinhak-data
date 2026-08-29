@@ -241,6 +241,15 @@ def _apply_eodiga(univ, ed):
             same = [r for r in recs if not want or r.get("track") == want]
             u["eodiga"] = same or recs
             u["eodiga_year"] = yr
+            # 정원(count) 누락 시 어디가 모집인원으로 보완 (P3-1)
+            if not u.get("count"):
+                for r in (same or recs):
+                    if r.get("recruit"):
+                        try:
+                            u["count"] = int(float(r["recruit"]))
+                            break
+                        except (ValueError, TypeError):
+                            pass
             # 대표 70%컷: 같은 전형의 '일반전형' 우선, 없으면 최소 등급70
             pool = [r for r in (same or recs) if r.get("grade70") is not None]
             if not pool:
@@ -546,9 +555,11 @@ def convert_auto(auto):
                     "ipgyeol_page": ipinfo.get("page") if ipinfo else None,
                 })
             if units:
+                method = {"교과": 100} if cat == "교과" else {}
+                gyogwa = {"subjects": ["국어", "수학", "영어", "사회", "과학"]} if cat == "교과" else None
                 tracks.append({
                     "id": f"auto_{cat}", "name": f"{cat}전형", "category": cat,
-                    "method": {}, "gyogwa": None, "auto": True, "units": units,
+                    "method": method, "gyogwa": gyogwa, "auto": True, "units": units,
                 })
     else:  # 학과 미검출 → 기존 방식(최저 엔트리/플레이스홀더)
         for cat, c in idx.items():
