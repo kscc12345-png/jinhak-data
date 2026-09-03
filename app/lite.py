@@ -31,9 +31,85 @@ BAND_ORDER = ["안정", "적정", "소신", "위험", "매우위험", "판정보
 FIXED_SUBS = ["국어", "수학", "영어", "한국사"]
 SUBS = ["국어", "수학", "영어", "사회", "과학", "한국사"]
 FONT = "Malgun Gothic"
+SEMESTERS = ["1-1", "1-2", "2-1", "2-2", "3-1", "3-2"]
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+
+
+# 수능최저 기준이 **이 학과 것인지** 알려 준다 (unit.match).
+# 발행본에서 '전형공통' 이 25%, '미확인' 이 45% 인데 화면은 구분하지 않고
+# 보여줬다. 다른 학과의 기준을 이 학과에 적용해 판단할 수 있어서 밝힌다.
+MATCH_LABEL = {
+    "요강확인": "요강을 직접 확인한 기준 (원문 첨부)",
+    "이름일치": "이 학과에 명시된 기준",
+    "정밀구축": "이 학과에 명시된 기준 (검수 완료)",
+    "단과일치": "같은 단과대학 기준을 적용 — 학과별 기준은 못 찾음",
+    "단과일치(타전형)": "다른 전형의 같은 단과대학 기준 — 참고용",
+    "계열추정": "계열 기준으로 추정 — 반드시 요강 확인",
+    "전형공통": "이 전형 전체에 공통 적용되는 기준",
+    "본문": "요강 본문 문장에서 찾은 기준",
+    "어디가": "어디가 자료로 만든 항목 (요강 미확보)",
+    "정시결과": "어디가 정시 결과 기반",
+    "미확인": "요강에서 기준을 찾지 못함 — 미적용일 수 있음",
+}
+MATCH_CAUTION = {"단과일치", "단과일치(타전형)", "계열추정", "전형공통", "미확인"}
+
+
+class FlowFrame(ctk.CTkFrame):
+    """자식을 가로로 채우다가 폭이 부족하면 다음 줄로 넘기는 컨테이너.
+
+    `pack(side="left")` 로 길게 이어 붙이면 창이 좁아지거나 글씨를 키웠을 때
+    뒤쪽 위젯이 **배치조차 되지 않아** 클릭할 수 없다.
+    (실제로 미이수 학기 줄에서 서랍 폭 497px 에 필요폭 881px 이라
+     '3-1' '3-2' 를 누를 수 없었다.)
+
+    `place` 로 좌표를 직접 계산하면 안 된다. CustomTkinter 는 지정 폭에
+    화면 배율을 곱하지만 `winfo_width()` 는 실제 픽셀을 주므로 단위가 섞인다.
+    `grid` 를 쓰면 줄 수·높이를 grid 가 맞춰 준다.
+
+    desktop.py 에도 같은 클래스가 있다. lite.py 는 학생에게 단독으로
+    발행되므로 desktop 을 import 할 수 없어 일부러 복제해 둔다.
+    한쪽을 고치면 반대쪽도 같이 고칠 것.
+    """
+
+    def __init__(self, master, gap_x=8, gap_y=6, **kw):
+        kw.setdefault("fg_color", "transparent")
+        super().__init__(master, **kw)
+        self._items = []
+        self._gap_x, self._gap_y = gap_x, gap_y
+        self._cols = 0
+        self._pending = False
+        self.bind("<Configure>", self._schedule)
+
+    def add(self, widget):
+        """widget 은 이 FlowFrame 을 부모로 만들어서 넘긴다 (pack/grid 하지 말 것)."""
+        self._items.append(widget)
+        self._schedule()
+        return widget
+
+    def _schedule(self, _e=None):
+        if self._pending:
+            return
+        self._pending = True
+        self.after_idle(self._relayout)
+
+    def _relayout(self):
+        self._pending = False
+        if not self._items:
+            return
+        avail = self.winfo_width()
+        if avail <= 1:
+            self.after(50, self._schedule)
+            return
+        widest = max(max(w.winfo_reqwidth(), w.winfo_width()) for w in self._items)
+        cols = max(1, int(avail // (widest + self._gap_x)))
+        if cols == self._cols:
+            return
+        self._cols = cols
+        for i, w in enumerate(self._items):
+            w.grid(row=i // cols, column=i % cols, sticky="w",
+                   padx=(0, self._gap_x), pady=(0, self._gap_y))
 
 
 PLAIN = os.path.join(PUBLISHED, "universities.json")
@@ -146,6 +222,7 @@ class Lite(ctk.CTk):
                           {"name": "과학", "fixed": False, "kind": "과학", "grade": _d(), "ach": _d(), "raw": _d(), "unit": _d()}]
         self.tamgu = [{"name": "탐구1", "g": "3", "pct": ""},
                       {"name": "탐구2", "g": "4", "pct": ""}]
+        self.sem_active = {"1-1": True, "1-2": True, "2-1": True, "2-2": True, "3-1": True, "3-2": True}
         self.year_active = {"1": True, "2": True, "3": True}
         self.font_scale = 1.0
         self.active_semester = "1-1"
@@ -526,16 +603,22 @@ class Lite(ctk.CTk):
         t_row = ctk.CTkFrame(c, fg_color="transparent"); t_row.pack(fill="x", padx=16, pady=4)
         self.semester_title = ctk.CTkLabel(t_row, text="▶ 현재 입력 중: 1학년 1학기", font=("Malgun Gothic", 14, "bold"), text_color=C["blue"])
         self.semester_title.pack(side="left")
+        # 미이수 학기 — 라벨과 체크박스 6개를 한 줄에 붙였더니 서랍 폭(497px)에
+        # 필요폭 881px 이 안 맞아 '3-1' '3-2' 가 배치되지 않아 클릭할 수 없었다.
+        # 라벨을 위로 올리고 체크박스는 FlowFrame 에 담아 폭에 맞춰 줄을 나눈다.
         yrow = ctk.CTkFrame(c, fg_color="transparent"); yrow.pack(fill="x", padx=16, pady=(0, 2))
-        ctk.CTkLabel(yrow, text="아직 안 배운 학년:", font=(FONT, 11),
-                     text_color=C["muted"]).pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(yrow, text="미이수 학기 (체크하면 계산에서 제외)", font=(FONT, 11),
+                     text_color=C["muted"], anchor="w").pack(fill="x")
+        sem_row = FlowFrame(yrow, gap_x=2, gap_y=2)
+        sem_row.pack(fill="x", pady=(2, 0))
+        self.sem_off_vars = {}
         self.year_off_vars = {}
-        for y in ["2", "3"]:
-            v = ctk.BooleanVar(value=not self.year_active[y])
-            self.year_off_vars[y] = v
-            ctk.CTkCheckBox(yrow, text=f"{y}학년 미이수", variable=v, font=(FONT, 11),
-                checkbox_width=18, checkbox_height=18, fg_color=C["orange"],
-                command=self._on_year_active).pack(side="left", padx=6)
+        for s in SEMESTERS:
+            v = ctk.BooleanVar(value=not self.sem_active.get(s, True))
+            self.sem_off_vars[s] = v
+            sem_row.add(ctk.CTkCheckBox(sem_row, text=s, variable=v, font=(FONT, 11),
+                width=62, checkbox_width=16, checkbox_height=16, fg_color=C["orange"],
+                command=self._on_sem_active))
         frow = ctk.CTkFrame(c, fg_color="transparent"); frow.pack(fill="x", padx=16, pady=(2, 0))
         self.five_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(frow, text="5등급제 성적 (9등급으로 자동 환산)", variable=self.five_var,
@@ -659,6 +742,7 @@ class Lite(ctk.CTk):
             "gye": self.gye_var.get(),
             "curr": self.curriculum_var.get(),
             "five": self.five_var.get(),
+            "sem_active": getattr(self, "sem_active", {}),
             "year_active": getattr(self, "year_active", {}),
             "weights": getattr(self.student, "weights", {}),
             "subjects": self.subjects,
@@ -683,10 +767,18 @@ class Lite(ctk.CTk):
             self.curriculum_var.set(st.get("curr", "현행(2015)"))
             self._on_curriculum_change(self.curriculum_var.get())
             self.five_var.set(st.get("five", False))
-            if hasattr(self, "year_active"):
-                for y, active in st.get("year_active", {}).items():
-                    self.year_active[y] = active
-                    if y in self.year_off_vars: self.year_off_vars[y].set(not active)
+            if hasattr(self, "sem_active"):
+                if "sem_active" in st:
+                    for s, active in st.get("sem_active", {}).items():
+                        self.sem_active[s] = active
+                        if s in self.sem_off_vars: self.sem_off_vars[s].set(not active)
+                elif "year_active" in st:
+                    for y, active in st.get("year_active", {}).items():
+                        for sem in [f"{y}-1", f"{y}-2"]:
+                            self.sem_active[sem] = active
+                            if sem in self.sem_off_vars: self.sem_off_vars[sem].set(not active)
+                for y in ["1", "2", "3"]:
+                    self.year_active[y] = self.sem_active.get(f"{y}-1", True) or self.sem_active.get(f"{y}-2", True)
             for y, w in st.get("weights", {}).items():
                 if y in getattr(self, "weight_entries", {}):
                     self.weight_entries[y].delete(0, "end")
@@ -876,10 +968,15 @@ class Lite(ctk.CTk):
             self.semester_title.configure(text=f"▶ 현재 입력 중: {ys}학년 {ss}학기")
         self._rebuild_electives()
 
-    def _on_year_active(self):
-        for y, v in self.year_off_vars.items():
-            self.year_active[y] = not v.get()
+    def _on_sem_active(self):
+        for s, v in self.sem_off_vars.items():
+            self.sem_active[s] = not v.get()
+        for y in ["1", "2", "3"]:
+            self.year_active[y] = self.sem_active.get(f"{y}-1", True) or self.sem_active.get(f"{y}-2", True)
         self.recompute()
+
+    def _on_year_active(self):
+        self._on_sem_active()
 
     def _on_five_scale(self):
         on = self.five_var.get()
@@ -1058,7 +1155,7 @@ class Lite(ctk.CTk):
         self._save_tamgu()
         st = {"gyeyeol": self.gye_var.get()}
         w = self.student["weights"]
-        yrs = [y for y in ["1", "2", "3"] if self.year_active.get(y, True)]
+        yrs = ["1", "2", "3"]
         tw = sum(w[y] for y in yrs) or 1
         conv = engine.convert_5to9 if self.five_var.get() else (lambda g: g)
         
@@ -1076,6 +1173,8 @@ class Lite(ctk.CTk):
                 s1, s2 = f"{y}-1", f"{y}-2"
                 
                 def get_sem(sem):
+                    if not self.sem_active.get(sem, True):
+                        return None, 0
                     g = subj["grade"].get(sem, "")
                     a = subj["ach"].get(sem, "")
                     r = subj["raw"].get(sem, "")
@@ -1222,6 +1321,183 @@ class Lite(ctk.CTk):
                 pass
 
     # ---------- 상세 ----------
+    def _criteria_box(self, parent, x):
+        """대학이 공시한 지원 기준을 한 묶음으로 보여준다.
+
+        합격컷만으로는 지원 판단이 안 된다. 전형요소를 몇 %씩 보는지,
+        어떤 교과를 반영하는지, 학년별 비중이 어떻게 되는지가 있어야 한다.
+        공시되지 않은 항목은 **없다고 적는다** — 빈칸이면 프로그램이 정보를
+        못 받아온 것처럼 보인다. (모바일 앱과 같은 항목·같은 문구)
+        """
+        rows = []
+
+        # 학년도 — 발행본에 2027 과 2026 이 섞여 있다(연세대 서울은 2026)
+        if x.get("year"):
+            rows.append(("학년도", f"{x['year']}학년도 요강"))
+
+        # 수능최저 기준의 출처 — 이 학과 것인지, 전형 공통인지, 못 찾은 것인지
+        mk = x.get("match")
+        if mk:
+            lb = MATCH_LABEL.get(mk, mk)
+            rows.append(("최저 근거", ("⚠ " + lb) if mk in MATCH_CAUTION else lb))
+
+        # 최저 기준의 원문 — 교차 점검용.
+        # 요강을 읽어 채운 값은 반드시 원문·출처를 붙인다.
+        rsent = x.get("rule_sentence")
+        if rsent:
+            rows.append(("최저 원문", str(rsent)))
+            rsrc, rpg = x.get("rule_src"), x.get("rule_page")
+            if rsrc:
+                # 쪽 번호는 보조 수단이다 — 요강은 판본마다 쪽이 다르다.
+                # 위에 붙인 '최저 원문' 을 Ctrl+F 로 찾는 것이 확실하다.
+                rows.append(("└ 출처",
+                             f"{rsrc} · (참고) 관리자 PDF {rpg}쪽" if rpg
+                             else str(rsrc)))
+
+        # 충족 여유 — '통과' 만으로는 얼마나 여유가 있는지 알 수 없다
+        su = x.get("suneung") or {}
+        mg, stt = su.get("margin"), su.get("status")
+        if isinstance(mg, (int, float)) and stt in ("pass", "fail"):
+            v = abs(mg)
+            vs = f"{v:.0f}" if float(v).is_integer() else f"{v:.2f}"
+            if mg == 0:
+                rows.append(("여유", "기준과 정확히 같음 — 여유 없음"))
+            else:
+                rows.append(("여유", f"기준보다 {vs}등급 여유" if mg > 0
+                             else f"기준에서 {vs}등급 부족"))
+
+        # 계열 불일치 — 지원 자체가 안 되는 경우
+        if x.get("gyeyeol_match") is False:
+            rows.append(("계열", "⚠ 내 계열과 모집 계열이 다릅니다"))
+
+        # ⚠️ 자동 추출본의 method / gyogwa 는 요강에서 읽은 값이 아니라 **기본값**이다.
+        # {"교과":100} 과 반영교과 국어·수학·영어·사회·과학 은 교과 계산이 죽지
+        # 않게 넣어 둔 자리표시자다. 발행본 5,577 학과 중 5,498 개가 이것이고
+        # 진짜 공시값은 배재대 3개 전형뿐이었다.
+        # 이걸 "대학이 공시한 기준" 으로 보여주면 학생이 틀린 기준을 믿는다.
+        def _is_placeholder(mm):
+            if not isinstance(mm, dict):
+                return False
+            if mm.get("placeholder"):
+                return True
+            if not x.get("auto"):          # 검수된 전형이면 그대로 믿는다
+                return False
+            subs = mm.get("subjects")
+            if isinstance(subs, list):
+                return [str(s) for s in subs] == ["국어", "수학", "영어", "사회", "과학"]
+            keys = [k for k in mm if k != "placeholder"]
+            return keys == ["교과"] and mm.get("교과") == 100
+
+        m = x.get("method")
+        msrc = m.get("_source") if isinstance(m, dict) else None
+        if isinstance(m, dict) and m and not _is_placeholder(m):
+            parts = [f"{k} {v}%" for k, v in m.items()
+                     if isinstance(v, (int, float)) and v > 0]
+            if parts:
+                rows.append(("전형요소", " + ".join(parts)))
+            # 위치 — 쪽 번호는 판본마다 달라서 섹션 제목을 준다.
+            # (로컬 동국대 요강의 인쇄 46쪽은 논술 전형방법인데 대학 홈페이지
+            #  요강의 46쪽은 특성화고교 기준학과였다)
+            sec = (msrc or {}).get("section")
+            if sec:
+                rows.append(("└ 위치", f"요강 「{sec}」"))
+            # 1단계 / 2단계 구조
+            stages = (msrc or {}).get("stages")
+            if isinstance(stages, list) and len(stages) > 1:
+                segs = []
+                for st in stages:
+                    if not isinstance(st, dict):
+                        continue
+                    no = st.get("stage")
+                    el = st.get("elements") or {}
+                    body = " + ".join(f"{k} {v}%" for k, v in el.items())
+                    head = "일괄" if not no else f"{no}단계"
+                    if body:
+                        segs.append(f"{head} {body}")
+                if segs:
+                    mult = (msrc or {}).get("multiplier")
+                    txt = "  →  ".join(segs)
+                    rows.append(("선발 단계",
+                                 txt + (f"   (1단계 {mult})" if mult else "")))
+            # 원문 문장 — 교차 점검용
+            tx = (msrc or {}).get("text")
+            if tx:
+                rows.append(("요강 원문", str(tx)))
+        else:
+            rows.append(("전형요소", "요강에서 확인되지 않음"))
+
+        spec = x.get("gyogwa_spec")
+        _fake = _is_placeholder(spec)
+        if _fake:
+            rows.append(("반영교과", "요강에서 확인되지 않음 (전 과목으로 계산)"))
+        if isinstance(spec, dict) and not _fake:
+            subs = spec.get("subjects")
+            if subs:
+                rows.append(("반영교과", "·".join(str(s) for s in subs)))
+                gsrc = spec.get("_source") or {}
+                if gsrc.get("section"):
+                    rows.append(("└ 위치", f"요강 「{gsrc['section']}」"))
+                if gsrc.get("text"):
+                    rows.append(("└ 원문", str(gsrc["text"])))
+            scale = spec.get("scale")
+            if isinstance(scale, dict) and scale:
+                keys = sorted(scale, key=lambda k: int(k) if str(k).isdigit() else 99)
+                txt = " / ".join(f"{k}등급 {scale[k]}" for k in keys[:5])
+                rows.append(("등급환산", txt + (" …" if len(keys) > 5 else "")))
+            sel = spec.get("selection_rules")
+            if sel:
+                def _one(rr):
+                    if not isinstance(rr, dict):
+                        return str(rr)
+                    pick = "상위" if rr.get("pick") == "best" else (rr.get("pick") or "")
+                    n = rr.get("n")
+                    g = rr.get("group", "")
+                    return f"{g}" if n is None else f"{g} 중 {pick} {n}과목"
+                rows.append(("과목선택", ", ".join(_one(rr) for rr in sel)))
+
+        gw = x.get("grade_weights")
+        if isinstance(gw, dict) and isinstance(gw.get("weights"), dict):
+            w = gw["weights"]
+            txt = " : ".join(f"{y}학년 {w.get(y, '-')}" for y in ("1", "2", "3"))
+            lb = gw.get("label")
+            rows.append(("학년비중", f"{txt}  ({lb} · 대학 공시)" if lb else f"{txt}  (대학 공시)"))
+        else:
+            rows.append(("학년비중", "대학이 공시하지 않음 → 내가 설정한 비중으로 계산"))
+
+        cnt = x.get("count")
+        eod_recruit = None
+        for e in (x.get("eodiga") or []):
+            if isinstance(e, dict) and e.get("recruit"):
+                eod_recruit = int(e["recruit"]); break
+        if cnt or eod_recruit:
+            parts = []
+            if cnt: parts.append(f"요강 {cnt}명")
+            if eod_recruit and eod_recruit != cnt: parts.append(f"어디가 {eod_recruit}명")
+            rows.append(("모집인원", " · ".join(parts)))
+        else:
+            rows.append(("모집인원", "요강에서 확인되지 않음"))
+
+        pages = [f"{lb} p.{x.get(k)}" for lb, k in
+                 (("모집단위", "unit_page"), ("수능최저", "rule_page"), ("입결", "ipgyeol_page"))
+                 if x.get(k)]
+        if pages:
+            rows.append(("원문", " · ".join(pages)))
+
+        if not rows:
+            return
+        box = ctk.CTkFrame(parent, fg_color=C["card2"], corner_radius=10)
+        box.pack(fill="x", padx=16, pady=(6, 4))
+        ctk.CTkLabel(box, text="📋 이 전형의 지원 기준", font=(FONT, 12, "bold"),
+                     text_color=C["blue"]).pack(anchor="w", padx=12, pady=(6, 2))
+        for label, val in rows:
+            row = ctk.CTkFrame(box, fg_color="transparent")
+            row.pack(fill="x", padx=14, pady=1)
+            ctk.CTkLabel(row, text=label, width=64, anchor="w", font=(FONT, 11),
+                         text_color=C["muted"]).pack(side="left")
+            ctk.CTkLabel(row, text=val, font=(FONT, 11), text_color=C["text"],
+                         anchor="w", justify="left", wraplength=540).pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(box, text="", height=4).pack()
+
     def show_detail(self, r):
         try:
             same = [x for x in self.results if x["univ"] == r["univ"] and x["unit"] == r["unit"]] or [r]
@@ -1276,6 +1552,10 @@ class Lite(ctk.CTk):
                 for cp in guide["checkpoints"]:
                     ctk.CTkLabel(gbox, text=f"• 체크사항: {cp}",
                                  font=("Malgun Gothic", 11, "bold"), text_color=C["green"], wraplength=630, justify="left").pack(anchor="w", padx=14, pady=(1, 3))
+
+                # 대학이 공시한 지원 기준 (전형요소·반영교과·환산표·학년비중·모집인원)
+                # 데이터에는 있는데 화면에 안 보이던 것들. 모바일 앱과 같은 항목이다.
+                self._criteria_box(card, x)
 
                 ctk.CTkLabel(card, text="수능최저 세부: " + req, font=("Malgun Gothic", 11), text_color=C["muted"],
                              wraplength=630, justify="left").pack(anchor="w", padx=16, pady=(4, 2))

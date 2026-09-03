@@ -20,8 +20,50 @@ def _tamgu_grade(student, mode):
     return min(g)  # best1 (상위 1과목)
 
 
+def _max_for(rule, student):
+    """수학 선택과목에 따라 기준 등급이 달라지는 경우를 반영한다.
+
+    공주대 수학교육과: '수학 포함 상위 2개 영역 합 7 이내
+    (단, 수학 과목 중 확률과 통계 과목 응시자는 합산 4등급 이내)'.
+    이걸 반영하지 않으면 확통 응시자에게 **통과라고 잘못 알려준다**
+    (국어3+수학3=6 ≤ 7 로 통과 처리되지만 요강 기준은 4 이내다).
+    """
+    mx = rule["max"]
+    mbm = rule.get("max_by_math")
+    if isinstance(mbm, dict):
+        sel = (student.get("수학선택") or "").replace(" ", "")
+        for k, v in mbm.items():
+            if k.replace(" ", "") == sel:
+                return v
+    return mx
+
+
+def _remap(area, g, rule):
+    """대학이 특정 영역 등급을 통합해 보는 경우를 반영한다.
+
+    중앙대: "영어 등급 반영 시 1등급과 2등급을 통합하여 1등급으로 간주하여
+    수능최저학력기준 충족 여부를 산정". 이걸 반영하지 않으면 영어 2등급인
+    학생에게 **실제보다 엄격한 판정**을 내려 지원 가능한 학과를 숨긴다.
+
+    형식: rule["area_grade_map"] = {"영어": {"2": 1}}
+    """
+    m = (rule or {}).get("area_grade_map")
+    if not isinstance(m, dict) or g is None:
+        return g
+    am = m.get(area)
+    if not isinstance(am, dict):
+        return g
+    for k, v in am.items():
+        try:
+            if float(k) == float(g):
+                return v
+        except (TypeError, ValueError):
+            continue
+    return g
+
+
 def _area_grade(student, area, rule):
-    """규칙에 맞는 영역 등급을 반환(수학 선택과목 제한 반영)."""
+    """규칙에 맞는 영역 등급을 반환(수학 선택과목 제한·등급 통합 반영)."""
     if area == "탐구":
         return _tamgu_grade(student, rule.get("tamgu", "best1"))
     if area == "수학":
@@ -44,8 +86,12 @@ def evaluate(rule, student):
       margin: 여유 등급수(+면 충족 여유, -면 부족). sum류에서만 의미.
     """
     if not rule or rule.get("type") in (None, "none"):
-        return {"status": "na", "detail": "수능최저 미적용", "margin": None,
-                "label": "수능최저 없음"}
+        # 규칙의 라벨을 그대로 쓴다. '요강에 미적용이라고 적혀 있음' 과
+        # '요강에서 못 찾음' 은 학생에게 전혀 다른 정보인데, 라벨을 버리면
+        # 둘 다 '수능최저 없음' 으로 뭉개진다.
+        lab = (rule or {}).get("label") or ""
+        return {"status": "na", "detail": lab or "수능최저 미적용",
+                "margin": None, "label": lab or "수능최저 없음"}
 
     t = rule["type"]
 
@@ -70,7 +116,7 @@ def evaluate(rule, student):
     # 각 영역 등급 수집
     grades = {}
     for a in pool:
-        g = _area_grade(student, a, rule)
+        g = _remap(a, _area_grade(student, a, rule), rule)
         if g is not None:
             grades[a] = g
 
@@ -82,7 +128,7 @@ def evaluate(rule, student):
 
     if t in ("sum_top_n", "sum"):
         n = rule.get("n", 2)
-        mx = rule["max"]
+        mx = _max_for(rule, student)
         
         # 1) required_any (예: 국·수 중 1개 포함) 처리: 해당 목록 중 성적 가장 좋은 1개를 우선 확보
         req_any = rule.get("required_any") or []
@@ -130,7 +176,7 @@ def evaluate(rule, student):
     if t == "each_max":
         # n개 영역이 각각 max 이내
         n = rule.get("n", len(grades))
-        mx = rule["max"]
+        mx = _max_for(rule, student)
         if required:
             target_grades = [(req, grades[req]) for req in required if req in grades]
             if len(target_grades) < len(required):

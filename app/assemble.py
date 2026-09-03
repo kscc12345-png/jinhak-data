@@ -485,11 +485,200 @@ def _match_rule(cat_idx, unit_name, gye, college="", all_idx=None):
     return None, "미확인"
 
 
+#  전형 카테고리 → 표 머리글에서 찾을 낱말
+_CAT_HDR_WORDS = {
+    "교과": ("학생부교과", "교과"),
+    "종합": ("학생부종합", "종합"),
+    "논술": ("논술",),
+    "실기": ("실기", "실적", "특기"),
+}
+
+
+#  카테고리 → 전형명에서 찾을 낱말 (요강 요약표의 전형명과 맞추기 위한 것)
+_CAT_TRACK_WORDS = {
+    "교과": ("학생부교과", "교과전형", "교과"),
+    "종합": ("학생부종합", "종합전형", "종합"),
+    "논술": ("논술",),
+    "실기": ("실기", "실적", "특기"),
+}
+
+
+def _curated_criteria(curated, cat):
+    """사람(또는 AI)이 요강을 **읽어서** 채운 값. 파서 결과보다 우선한다.
+
+    왜 이 경로가 필요한가 —
+    요강 27개는 표 구조가 27가지다. 범용 파서로 다 훑으려면 형식마다
+    대응해야 하고, 그렇게 해도 커버리지가 33% 에서 멈췄다.
+    반면 **읽어서 채우면** 정확하고 빠르다. 대학당 채울 값은 10개 정도다.
+
+    단, 읽어 넣은 값은 검수가 필요하므로 `_source.text`(원문)를 반드시
+    함께 넣어 원문과 대조할 수 있게 한다. `by: "read"` 로 표시한다.
+
+    형식: auto["curated"] = {"교과": {"method": {...}, "gyogwa": {...}}, ...}
+    """
+    c = ((curated or {}).get(cat) or {})
+    m = c.get("method")
+    g = c.get("gyogwa")
+    if not m and not g:
+        return None, None
+    method = dict(m) if m else None
+    if method and "_source" not in method:
+        method["_source"] = dict(c.get("_source") or {})
+    gyogwa = dict(g) if g else None
+    if gyogwa and "_source" not in gyogwa:
+        gyogwa["_source"] = dict(c.get("_source") or {})
+    return method, gyogwa
+
+
+def _curated_suneung(curated, cat, unit_name, college, campus=""):
+    """요강을 **읽어서** 채운 수능최저. 파서 결과보다 우선한다.
+
+    왜 이 경로가 필요한가 —
+    최저 규칙은 표 형식이 대학마다 다르고, 무엇보다 **귀속 단위가 다르다.**
+    어떤 대학은 전 학과 공통, 어떤 대학은 계열별, 공주대는 단과대학별,
+    건국대 논술은 인문·자연·수의예과가 각각 다르다. 범용 파서로는
+    "이 값이 어느 학과에 걸리는가" 를 맞히지 못해 규칙 33% 에서 멈췄고,
+    나머지 54% 는 '미확인' 으로 남아 학생에게 아무 정보도 못 줬다.
+
+    그리고 '미확인' 과 '요강에 없음' 은 전혀 다른 정보다.
+    목원대·우송대·한밭대는 요강에 **"모든 전형 미적용"** 이 적혀 있다.
+    이걸 '미확인' 으로 두면 학생은 최저를 걱정하며 지원을 망설인다.
+
+    형식:
+      auto["curated"]["_suneung"] = {
+        "all":  {"rule": {...}, "text": "원문", "page": 16},   # 전 전형·전 학과
+        "cats": {"교과": {"rules": [{"units": [...], "colleges": [...],
+                                     "rule": {...}, "text": ..., "page": ...}],
+                          "all": {...}}},
+      }
+    우선순위: 학과명 > 단과대학 > 캠퍼스 > 전형 전체 > 대학 전체
+
+    (계열 단위 지정은 없다. `gyeyeol` 은 _guess_gye() 의 추정값이어서
+     이걸로 최저를 걸면 추정이 틀린 학과에 틀린 기준이 붙는다.
+     계열별로 갈리는 대학은 학과명·단과대학으로 지정한다.)
+    반환: (rule, src) 또는 (None, None)
+    """
+    cs = (curated or {}).get("_suneung")
+    if not cs:
+        return None, None
+    scopes = []
+    node = (cs.get("cats") or {}).get(cat)
+    if node:
+        scopes.append(node)
+    if cs.get("all"):
+        scopes.append({"all": cs["all"]})
+    for node in scopes:
+        ents = node.get("rules") or []
+        for key, val in (("units", unit_name), ("colleges", college),
+                         ("campuses", campus)):
+            if not val:
+                continue
+            for ent in ents:
+                if val in (ent.get(key) or []):
+                    #  skip=True 는 "이 학과는 읽어서 채우지 않는다" 는 뜻이다.
+                    #  이 전형으로 모집하지 않는 학과에 전형 기준을 걸면
+                    #  틀린 정보가 된다. 중앙대 학생부교과(지역균형)는
+                    #  의학부를 모집하지 않는데(15쪽 모집단위 표) 캠퍼스
+                    #  기준(서울 3합 7)이 걸려 의대에 느슨한 기준을
+                    #  보여주고 있었다. 그런 학과는 미확인으로 남긴다.
+                    if ent.get("skip"):
+                        return None, None
+                    return ent["rule"], ent
+        if node.get("all"):
+            return node["all"]["rule"], node["all"]
+    return None, None
+
+
+def _track_criteria(tmethods, gyoinfo, cat):
+    """이 카테고리에 해당하는 전형방법·반영교과를 요강 추출 결과에서 고른다.
+
+    반환: (method, gyogwa) — 못 찾으면 (None, None).
+    **근거(쪽·원문·신뢰도)를 값 안에 함께 넣어** 사람이 원문과 대조할 수 있게 한다.
+    애매하면 채우지 않는다 — 틀린 기준은 잘못된 상담으로 이어진다.
+    """
+    words = _CAT_TRACK_WORDS.get(cat)
+    if not words:
+        return None, None
+
+    # 이 카테고리에 속하는 전형들 중 신뢰도 높은 것 우선.
+    # confidence 가 'low' 면 요소가 잘려 나간 것이라 쓰지 않는다
+    # (일부만 보여주면 나머지 전형요소를 놓친 것처럼 오해를 부른다).
+    cands = [(k, v) for k, v in (tmethods or {}).items()
+             if any(w in k for w in words) and v.get("confidence") != "low"]
+    if not cands:
+        # 전형방법은 못 읽었지만 **반영교과는 읽은** 경우.
+        # 교과 전형이면 교과를 반영하는 게 자명하므로, 교과 계산이 죽지 않게
+        # method 는 자리표시자로 두고(화면엔 '확인되지 않음' 으로 표시됨)
+        # 반영교과만 실제값으로 채운다. 이러면 계산은 **진짜 반영교과**로 하고
+        # 공시 여부는 정직하게 알린다.
+        # (이걸 안 하면 동국대·단국대·충북대·외대에서 읽은 반영교과가 버려진다)
+        if cat == "교과" and gyoinfo and gyoinfo.get("subjects"):
+            return ({"교과": 100, "placeholder": True},
+                    {"subjects": list(gyoinfo["subjects"]),
+                     "_source": {"page": gyoinfo.get("page"),
+                                 "section": gyoinfo.get("section"),
+                                 "text": gyoinfo.get("text"),
+                                 "confidence": gyoinfo.get("confidence")}})
+        return None, None
+    cands.sort(key=lambda kv: (kv[1].get("confidence") != "high",
+                               -sum(kv[1].get("elements", {}).values())))
+    name, info = cands[0]
+
+    method = dict(info.get("elements") or {})
+    if not method:
+        return None, None
+    method["_source"] = {
+        "page": info.get("page"), "section": info.get("section"),
+        "text": info.get("text"),
+        "track_name": name, "confidence": info.get("confidence"),
+        "stages": info.get("stages"), "multiplier": info.get("multiplier"),
+    }
+
+    gyogwa = None
+    # 교과 반영이 있는 전형에만 반영교과를 붙인다 (종합·논술엔 의미 없음)
+    if gyoinfo and gyoinfo.get("subjects") and (method.get("교과") or cat == "교과"):
+        gyogwa = {"subjects": list(gyoinfo["subjects"]),
+                  "_source": {"page": gyoinfo.get("page"),
+                              "section": gyoinfo.get("section"),
+                              "text": gyoinfo.get("text"),
+                              "confidence": gyoinfo.get("confidence")}}
+    return method, gyogwa
+
+
+def _count_for(ucounts, unit_name, cat, fallback):
+    """이 학과의 **이 전형** 모집인원을 표 격자에서 찾는다.
+
+    앱은 결과를 전형별로 보여주므로, '정원'도 그 전형의 모집인원이어야 한다.
+    (요강 한 학과에는 입학정원 / 전형별 / 합계가 다 적혀 있어서
+     텍스트에서 첫 숫자를 집으면 엉뚱한 값이 들어간다)
+
+    같은 카테고리 안에 세부 전형이 여럿이면(고교추천·지역인재 …) 합산한다.
+    못 찾으면 fallback(기존 값)을 그대로 둔다 — **추측해서 채우지 않는다.**
+    """
+    rec = (ucounts or {}).get(unit_name)
+    if not rec:
+        return fallback
+    by = rec.get("by") or {}
+    words = _CAT_HDR_WORDS.get(cat)
+    if by and words:
+        vals = [v for h, v in by.items() if any(w in h for w in words)]
+        if vals:
+            return sum(vals)
+    return fallback
+
+
 def convert_auto(auto):
     """auto 추출 JSON → 엔진 호환 대학 dict (학과 중심)."""
     src_file = auto.get("file")
     idx = _rule_index(auto)
     cats = auto.get("categories_detected", []) or []
+    # 표에서 읽은 모집인원 격자 {학과: {"total":n, "by":{전형머리글:n}}}
+    ucounts = auto.get("unit_counts") or {}
+    # 요강에서 읽은 전형방법(근거 쪽·원문 포함) / 반영교과
+    tmethods = auto.get("track_methods") or {}
+    gyoinfo = auto.get("gyogwa_info") or None
+    # 사람/AI 가 요강을 읽어서 채운 값 — 파서 결과보다 우선
+    curated = auto.get("curated") or {}
 
     # 캐노니컬 학과 목록 (모집인원 표) — 이름 기준 dedup, 정원/페이지 유지
     all_units = {}
@@ -498,6 +687,7 @@ def convert_auto(auto):
         if nm not in all_units:
             all_units[nm] = {
                 "unit": nm, "college": u.get("college"),
+                "campus": u.get("campus"),
                 "gyeyeol": u.get("gyeyeol") or _guess_gyeyeol(nm, u.get("college", "")),
                 "count": u.get("count"), "unit_page": u.get("page"),
                 "cats": set(),   # 이 학과가 실제로 검출된 전형(교과/종합/실기/논술)
@@ -510,6 +700,11 @@ def convert_auto(auto):
                 cur["unit_page"] = u.get("page")
                 if u.get("college"):
                     cur["college"] = u["college"]
+            # 단과대학·캠퍼스는 빈 칸만 채운다(표에서 늦게 읽히는 경우가 있다)
+            if not cur.get("college") and u.get("college"):
+                cur["college"] = u["college"]
+            if not cur.get("campus") and u.get("campus"):
+                cur["campus"] = u["campus"]
         if u.get("category"):
             all_units[nm]["cats"].add(u["category"])
 
@@ -538,16 +733,29 @@ def convert_auto(auto):
                         continue
                 rule = info["rule"] if info else {"type": "none",
                         "label": "수능최저 정보 미검출(미적용일 수 있음)"}
+                rpage = info["page"] if info else None
+                rsrc = info["src"] if info else None
+                rsent = info.get("sentence") if info else None
+                # 읽어서 채운 최저가 있으면 그것이 최우선(원문 첨부 필수)
+                crule, csrc = _curated_suneung(curated, cat, nm,
+                                               base.get("college") or "",
+                                               base.get("campus") or "")
+                if crule:
+                    rule, kind = crule, "요강확인"
+                    rpage = csrc.get("page")
+                    rsrc = "요강 직접확인"
+                    rsent = csrc.get("text")
                 ipinfo = ipg.get(nm)
                 units.append({
-                    "unit": nm, "college": base["college"], "gyeyeol": gye,
-                    "count": base["count"],
+                    "unit": nm, "college": base["college"],
+                    "campus": base.get("campus"), "gyeyeol": gye,
+                    "count": _count_for(ucounts, nm, cat, base["count"]),
                     "suneung_rule": rule,
                     "match": kind,
                     "unit_page": base["unit_page"],
-                    "rule_page": info["page"] if info else None,
-                    "rule_src": info["src"] if info else None,
-                    "rule_sentence": (info.get("sentence") if info else None),
+                    "rule_page": rpage,
+                    "rule_src": rsrc,
+                    "rule_sentence": rsent,
                     "source_file": src_file,
                     "ipgyeol_naesin": ipinfo["cut"] if ipinfo else None,
                     "ipgyeol_low": ipinfo["low"] if ipinfo else None,
@@ -555,8 +763,33 @@ def convert_auto(auto):
                     "ipgyeol_page": ipinfo.get("page") if ipinfo else None,
                 })
             if units:
-                method = {"교과": 100} if cat == "교과" else {}
-                gyogwa = {"subjects": ["국어", "수학", "영어", "사회", "과학"]} if cat == "교과" else None
+                # 읽어서 채운 값이 최우선. 다만 **항목별로** 우선한다.
+                # (읽은 값에 method 만 있는데 통째로 덮어쓰면 파서가 찾은
+                #  반영교과가 날아간다 — 실제로 10건이 6건으로 줄었다)
+                cur_m, cur_g = _curated_criteria(curated, cat)
+                par_m, par_g = _track_criteria(tmethods, gyoinfo, cat)
+                real_m = cur_m or par_m
+                real_g = cur_g or par_g
+                if real_m or real_g:
+                    tracks.append({
+                        "id": f"auto_{cat}", "name": f"{cat}전형", "category": cat,
+                        "method": real_m or {}, "gyogwa": real_g,
+                        "auto": True, "units": units,
+                    })
+                    continue
+
+                # ⚠️ 아래 method / gyogwa 는 **요강에서 읽은 값이 아니라 기본값**이다.
+                # 자동 추출본은 전형요소 비율·반영교과를 아직 못 읽으므로,
+                # 교과 계산이 아예 죽지 않게 넣어 두는 자리표시자다.
+                #
+                # 이걸 앱이 "대학이 공시한 기준" 으로 보여주면 학생은
+                # **틀린 기준을 공시값으로 믿는다.** 그래서 placeholder 를 붙여
+                # 화면에서 구분할 수 있게 한다. (발행본 5,577 학과 중 5,498 개가
+                # 이 기본값이었고, 진짜 공시값은 배재대 3개 전형뿐이다)
+                method = ({"교과": 100, "placeholder": True}
+                          if cat == "교과" else {})
+                gyogwa = ({"subjects": ["국어", "수학", "영어", "사회", "과학"],
+                           "placeholder": True} if cat == "교과" else None)
                 tracks.append({
                     "id": f"auto_{cat}", "name": f"{cat}전형", "category": cat,
                     "method": method, "gyogwa": gyogwa, "auto": True, "units": units,
@@ -627,6 +860,23 @@ def _guess_gyeyeol(unit, college):
     return "공통"
 
 
+_INVALID_UNIV_NAMES = {
+    "back", "filesave", "forward", "hand", "help", "home", "matplotlib",
+    "move", "qt4_editor_options", "subplots", "zoom_to_rect", "test", "untitled"
+}
+
+def _is_valid_univ(name):
+    """유효한 대학교 이름인지 검증(시스템 아이콘, 더미 영문명 등 제외)."""
+    if not name or not isinstance(name, str):
+        return False
+    name_clean = name.strip().lower()
+    if name_clean in _INVALID_UNIV_NAMES:
+        return False
+    # 한글이 최소 1글자 이상 포함되어 있어야 정상적인 국내 대학임 (예: 아주대학교, 서울대 등)
+    has_kor = any("가" <= c <= "힣" for c in name)
+    return has_kor
+
+
 def load_all():
     """정제본 우선, 없으면 자동 변환본으로 통합한 대학 딕셔너리."""
     univs = {}
@@ -636,8 +886,8 @@ def load_all():
             continue
         with open(f, encoding="utf-8") as fh:
             auto = json.load(fh)
-        if not auto.get("code") or not auto.get("name"):
-            continue                      # 코드/이름 없는 불량 데이터 건너뜀
+        if not auto.get("code") or not auto.get("name") or not _is_valid_univ(auto.get("name")):
+            continue                      # 코드/이름 없는 불량 데이터 및 시스템 더미 건너뜀
         # 표최저·본문최저·감지전형 중 하나라도 있으면 포함(없으면 스캔 등 → 그래도 표시)
         univs[auto["code"]] = convert_auto(auto)
     # 정제본으로 덮어쓰기
@@ -661,7 +911,7 @@ def load_all():
             continue
         ed = load_eodiga(code)
         u = _univ_from_eodiga(ed) if ed else None
-        if u:
+        if u and _is_valid_univ(u.get("name")) :
             if not u.get("year"):
                 u["year"] = meta.year_for_code(code)
             univs[code] = u

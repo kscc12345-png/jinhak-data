@@ -180,6 +180,11 @@ def eval_unit(univ, track, unit, student):
         "suneung": su,
         "gyogwa": gy,
         "method": track.get("method"),
+        # 학생이 지원 판단에 필요한 '기준' 원본.
+        # gyogwa 는 계산 결과라서 어떤 교과를 어떤 환산표로 봤는지가 안 담긴다.
+        "gyogwa_spec": track.get("gyogwa"),
+        "grade_weights": univ.get("grade_weights"),
+        "suneung_groups": univ.get("suneung_groups"),
         "auto": bool(univ.get("auto") or track.get("auto")),
         "confidence": (rule or {}).get("confidence") if rule else None,
         "band": band, "band_score": bscore, "band_basis": bbasis,
