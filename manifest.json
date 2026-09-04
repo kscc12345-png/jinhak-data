@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04 12:35",
+  "generated": "2026-09-04 13:07",
   "version": "1.4.1",
   "version_code": 141,
   "min_version_code": 100,
@@ -79,7 +79,7 @@
       "code": "hanyang",
       "name": "한양대학교(서울)",
       "year": 2027,
-      "units": 209
+      "units": 280
     },
     {
       "code": "hufs",
