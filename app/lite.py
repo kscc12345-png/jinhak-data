@@ -1208,7 +1208,7 @@ class Lite(ctk.CTk):
                     
             if valid_semesters > 0 and subject_weight_sum > 0:
                 weighted_avg = round(weighted_sum / subject_weight_sum, 2)
-                naesin[nm] = {"grade": weighted_avg, "units": total_units, "yearly_grades": yearly_grades, "raw_data": subj["raw"], "ach_data": subj["ach"]}
+                naesin[nm] = {"grade": weighted_avg, "units": total_units, "yearly_grades": yearly_grades, "raw_data": subj["raw"], "ach_data": subj["ach"], "kind": subj.get("kind")}
             
         st["naesin"] = naesin
         su = dict(self.student["suneung"])

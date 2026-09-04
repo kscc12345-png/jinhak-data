@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-04 13:07",
+  "generated": "2026-09-04 14:24",
   "version": "1.4.1",
   "version_code": 141,
   "min_version_code": 100,
   "mobile_version": "1.1.0",
   "mobile_version_code": 2,
   "mobile_min_version_code": 1,
-  "app_version": "15410f65e48d",
+  "app_version": "47bf349a7ded",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -20,6 +20,9 @@
     "suneung.py",
     "version.json"
   ],
+  "admin_version": "1.0.0",
+  "admin_version_code": 100,
+  "admin_min_version_code": 100,
   "universities": [
     {
       "code": "ajou",
