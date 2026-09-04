@@ -53,6 +53,18 @@ def subject_area(name, kind=None):
     return None
 
 
+def all_subjects(student_gyogwa, exclude_areas=None):
+    """'전 교과' — 학생이 가진 과목 전부. 뺄 교과군은 exclude_areas 로."""
+    skip = set(exclude_areas or [])
+    out = []
+    for nm, v in student_gyogwa.items():
+        kind = v.get("kind") if isinstance(v, dict) else None
+        if subject_area(nm, kind) in skip:
+            continue
+        out.append(nm)
+    return out
+
+
 def expand_subjects(student_gyogwa, subjects):
     """반영교과(교과군) 목록을 **학생이 가진 과목**들로 펼친다.
 
@@ -152,7 +164,21 @@ def spec_for(g, unit=None):
     return g
 
 
-def reflected_avg(student_gyogwa, subjects, univ=None, weights=None):
+def take_top(student_gyogwa, subjects, n, univ=None):
+    """성적 좋은 N개만 남긴다('석차등급 상위 10과목' 같은 경우)."""
+    if not n or n <= 0 or len(subjects) <= n:
+        return list(subjects)
+
+    def _g(nm):
+        g, _ = _get(student_gyogwa, nm, univ=univ)
+        return g if g is not None else 999
+    #  원래 순서를 지키면서 상위 N만 (화면에 뜨는 순서가 뒤바뀌지 않게)
+    keep = set(sorted(subjects, key=_g)[:n])
+    return [x for x in subjects if x in keep]
+
+
+def reflected_avg(student_gyogwa, subjects, univ=None, weights=None,
+                  ignore_units=False):
     """반영교과의 (이수단위 가중) 평균 등급.
 
     weights 가 있으면 교과군별 가중치를 함께 건다 —
@@ -164,6 +190,8 @@ def reflected_avg(student_gyogwa, subjects, univ=None, weights=None):
         g, u = _get(student_gyogwa, s, univ=univ)
         if g is None:
             continue
+        if ignore_units:
+            u = 1          # '이수단위 미적용'(동국대) — 과목마다 같은 무게
         if weights:
             v = student_gyogwa.get(s)
             kind = v.get("kind") if isinstance(v, dict) else None
@@ -207,16 +235,26 @@ def evaluate(track, student_gyogwa, univ=None, unit=None):
     #  계열·모집단위마다 반영교과가 다른 대학이 있다(동국대 인문=사회 /
     #  자연=과학). 이 모집단위에 맞는 설정을 먼저 고른다.
     g = spec_for(g, unit)
-    #  반영교과(교과군) → 학생이 가진 과목으로 펼친다.
-    #  이걸 안 하면 학생의 선택과목(물리학Ⅰ·생활과윤리 …)이 통째로 빠진다.
-    subs = expand_subjects(student_gyogwa, g["subjects"])
+    #  '전 교과' 인 대학(서울시립대 논술·고교추천)은 학생 과목 전부를 본다.
+    if g.get("all_subjects"):
+        subs = all_subjects(student_gyogwa, g.get("exclude_areas"))
+    else:
+        #  반영교과(교과군) → 학생이 가진 과목으로 펼친다.
+        #  이걸 안 하면 학생의 선택과목(물리학Ⅰ·생활과윤리 …)이 통째로 빠진다.
+        subs = expand_subjects(student_gyogwa, g.get("subjects") or [])
     if "selection_rules" in g:
         subs = apply_selection_rules(student_gyogwa, subs, g["selection_rules"], univ=univ)
+    #  '상위 N과목만' 은 교과군을 가리지 않고 성적 순으로 고른다
+    if g.get("top_n"):
+        subs = take_top(student_gyogwa, subs, g["top_n"], univ=univ)
     avg, used = reflected_avg(student_gyogwa, subs, univ=univ,
-                              weights=g.get("weights"))
+                              weights=g.get("weights"),
+                              ignore_units=bool(g.get("ignore_units")))
     if avg is None:
+        want = "전 교과" if g.get("all_subjects") else \
+            ", ".join(g.get("subjects") or [])
         return {"applies": True, "avg_grade": None, "score": None,
-                "detail": f"반영교과({', '.join(g['subjects'])}) 성적 미입력"}
+                "detail": f"반영교과({want}) 성적 미입력"}
     scale = g.get("scale")
     score = scale_score(avg, scale) if scale else None
     mx = max((float(v) for v in scale.values()), default=None) if scale else None
