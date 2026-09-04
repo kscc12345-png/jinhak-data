@@ -567,6 +567,15 @@ def _curated_suneung(curated, cat, unit_name, college, campus=""):
         scopes.append(node)
     if cs.get("all"):
         scopes.append({"all": cs["all"]})
+    return _curated_pick(scopes, unit_name, college, campus)
+
+
+def _curated_pick(scopes, unit_name, college, campus=""):
+    """scope 목록을 순서대로 보며 이 학과에 걸리는 규칙을 고른다.
+
+    scope 하나는 {"rules": [...], "all": {...}} 모양이다. 세부 전형(트랙)도
+    같은 모양이라 이 함수를 그대로 쓴다.
+    """
     for node in scopes:
         ents = node.get("rules") or []
         for key, val in (("units", unit_name), ("colleges", college),
@@ -587,6 +596,42 @@ def _curated_suneung(curated, cat, unit_name, college, campus=""):
         if node.get("all"):
             return node["all"]["rule"], node["all"]
     return None, None
+
+
+def _curated_subtracks(curated, cat):
+    """이 전형유형이 세부 전형으로 나뉘는지 본다. 없으면 None.
+
+    형식:
+      "cats": {"교과": {"tracks": [
+          {"name": "지역균형",            # 화면에 나올 전형 이름
+           "rules": [...], "all": {...},  # 이 전형의 최저 규칙
+           "units": [...], "colleges": [...],   # 이 전형이 뽑는 모집단위
+           "exclude_units": [...],
+           "count_hdr": ["지역균형"]},    # 모집인원 표 머리글 낱말
+          ...]}}
+    """
+    cs = (curated or {}).get("_suneung") or {}
+    node = (cs.get("cats") or {}).get(cat) or {}
+    tks = node.get("tracks")
+    return tks if isinstance(tks, list) and tks else None
+
+
+def _subtrack_takes(ent, unit_name, college):
+    """이 세부 전형이 이 모집단위를 뽑는가.
+
+    units/colleges 를 하나도 안 적으면 '전 모집단위' 로 본다. 적었으면
+    거기 든 것만 — 뽑지 않는 학과에 그 전형 기준을 걸면 틀린 정보가 된다.
+    """
+    if unit_name in (ent.get("exclude_units") or []):
+        return False
+    us, cols = ent.get("units"), ent.get("colleges")
+    if not us and not cols:
+        return True
+    if us and unit_name in us:
+        return True
+    if cols and college and college in cols:
+        return True
+    return False
 
 
 def _track_criteria(tmethods, gyoinfo, cat):
@@ -645,7 +690,7 @@ def _track_criteria(tmethods, gyoinfo, cat):
     return method, gyogwa
 
 
-def _count_for(ucounts, unit_name, cat, fallback):
+def _count_for(ucounts, unit_name, cat, fallback, words=None):
     """이 학과의 **이 전형** 모집인원을 표 격자에서 찾는다.
 
     앱은 결과를 전형별로 보여주므로, '정원'도 그 전형의 모집인원이어야 한다.
@@ -659,7 +704,7 @@ def _count_for(ucounts, unit_name, cat, fallback):
     if not rec:
         return fallback
     by = rec.get("by") or {}
-    words = _CAT_HDR_WORDS.get(cat)
+    words = words or _CAT_HDR_WORDS.get(cat)
     if by and words:
         vals = [v for h, v in by.items() if any(w in h for w in words)]
         if vals:
@@ -680,10 +725,16 @@ def convert_auto(auto):
     # 사람/AI 가 요강을 읽어서 채운 값 — 파서 결과보다 우선
     curated = auto.get("curated") or {}
 
+    # 요강을 열어 확인한 '모집단위가 아닌 이름' — 계열 묶음·인증 표기·
+    # 줄바꿈에 잘린 이름. 있지도 않은 학과를 학생에게 보여주지 않는다.
+    drop = set(curated.get("_drop_units") or [])
+
     # 캐노니컬 학과 목록 (모집인원 표) — 이름 기준 dedup, 정원/페이지 유지
     all_units = {}
     for u in auto.get("units_detected", []):
         nm = u["unit"]
+        if nm in drop:
+            continue
         if nm not in all_units:
             all_units[nm] = {
                 "unit": nm, "college": u.get("college"),
@@ -714,54 +765,93 @@ def convert_auto(auto):
     tracks = []
 
     all_idx = idx.get("__ALL__")
+
+    def _build_units(cat, cat_idx, fb, sub=None):
+        """이 전형(cat) 또는 그 안의 세부 전형(sub)의 학과 목록을 만든다."""
+        out = []
+        for nm, base in all_units.items():
+            gye = base["gyeyeol"]
+            college = base.get("college") or ""
+            if sub is not None and not _subtrack_takes(sub, nm, college):
+                continue
+            info, kind = _match_rule(cat_idx, nm, gye, college, all_idx=fb)
+            # 선택형(논술/실기)은 과다나열 방지.
+            if cat in SELECTIVE:
+                detected = cat in base.get("cats", set())
+                named = bool(cat_idx and nm in cat_idx["by_name"])
+                # 실기: 예체능 학과는 실기 전형이 있으므로 표기(정보 제공)
+                arts = cat == "실기" and _is_arts(nm)
+                if not (detected or named or arts):
+                    continue
+            rule = info["rule"] if info else {"type": "none",
+                    "label": "수능최저 정보 미검출(미적용일 수 있음)"}
+            rpage = info["page"] if info else None
+            rsrc = info["src"] if info else None
+            rsent = info.get("sentence") if info else None
+            # 읽어서 채운 최저가 있으면 그것이 최우선(원문 첨부 필수).
+            # 세부 전형이면 **그 전형의 규칙만** 본다 — 다른 세부 전형의
+            # 기준을 끌어오면 애초에 나눈 이유가 없어진다.
+            if sub is not None:
+                crule, csrc = _curated_pick([sub], nm, college,
+                                            base.get("campus") or "")
+            else:
+                crule, csrc = _curated_suneung(curated, cat, nm, college,
+                                               base.get("campus") or "")
+            if crule:
+                rule, kind = crule, "요강확인"
+                rpage = csrc.get("page")
+                rsrc = "요강 직접확인"
+                rsent = csrc.get("text")
+            ipinfo = ipg.get(nm)
+            out.append({
+                "unit": nm, "college": base["college"],
+                "campus": base.get("campus"), "gyeyeol": gye,
+                "count": _count_for(ucounts, nm, cat, base["count"],
+                                    words=(sub or {}).get("count_hdr")),
+                "suneung_rule": rule,
+                "match": kind,
+                "unit_page": base["unit_page"],
+                "rule_page": rpage,
+                "rule_src": rsrc,
+                "rule_sentence": rsent,
+                "source_file": src_file,
+                "ipgyeol_naesin": ipinfo["cut"] if ipinfo else None,
+                "ipgyeol_low": ipinfo["low"] if ipinfo else None,
+                "ipgyeol_type": ipinfo["cut_type"] if ipinfo else None,
+                "ipgyeol_page": ipinfo.get("page") if ipinfo else None,
+            })
+        return out
+
     if all_units:  # 학과 중심 구성
         for cat in cats:
             cat_idx = idx.get(cat)
             # 교과·종합만 타전형 최저 폴백 허용(논술·실기는 고유 최저라 폴백 배제)
             fb = all_idx if cat not in SELECTIVE else None
-            units = []
-            for nm, base in all_units.items():
-                gye = base["gyeyeol"]
-                info, kind = _match_rule(cat_idx, nm, gye, base.get("college") or "", all_idx=fb)
-                # 선택형(논술/실기)은 과다나열 방지.
-                if cat in SELECTIVE:
-                    detected = cat in base.get("cats", set())
-                    named = bool(cat_idx and nm in cat_idx["by_name"])
-                    # 실기: 예체능 학과는 실기 전형이 있으므로 표기(정보 제공)
-                    arts = cat == "실기" and _is_arts(nm)
-                    if not (detected or named or arts):
+
+            # ── 세부 전형이 선언된 유형은 트랙을 나눠서 낸다 ──────────
+            subs = _curated_subtracks(curated, cat)
+            if subs:
+                cur_m, cur_g = _curated_criteria(curated, cat)
+                par_m, par_g = _track_criteria(tmethods, gyoinfo, cat)
+                real_m, real_g = (cur_m or par_m), (cur_g or par_g)
+                if not real_m and cat == "교과":
+                    real_m = {"교과": 100, "placeholder": True}
+                    real_g = real_g or {"subjects": ["국어", "수학", "영어",
+                                                     "사회", "과학"],
+                                        "placeholder": True}
+                for i, sub in enumerate(subs):
+                    su = _build_units(cat, cat_idx, fb, sub=sub)
+                    if not su:
                         continue
-                rule = info["rule"] if info else {"type": "none",
-                        "label": "수능최저 정보 미검출(미적용일 수 있음)"}
-                rpage = info["page"] if info else None
-                rsrc = info["src"] if info else None
-                rsent = info.get("sentence") if info else None
-                # 읽어서 채운 최저가 있으면 그것이 최우선(원문 첨부 필수)
-                crule, csrc = _curated_suneung(curated, cat, nm,
-                                               base.get("college") or "",
-                                               base.get("campus") or "")
-                if crule:
-                    rule, kind = crule, "요강확인"
-                    rpage = csrc.get("page")
-                    rsrc = "요강 직접확인"
-                    rsent = csrc.get("text")
-                ipinfo = ipg.get(nm)
-                units.append({
-                    "unit": nm, "college": base["college"],
-                    "campus": base.get("campus"), "gyeyeol": gye,
-                    "count": _count_for(ucounts, nm, cat, base["count"]),
-                    "suneung_rule": rule,
-                    "match": kind,
-                    "unit_page": base["unit_page"],
-                    "rule_page": rpage,
-                    "rule_src": rsrc,
-                    "rule_sentence": rsent,
-                    "source_file": src_file,
-                    "ipgyeol_naesin": ipinfo["cut"] if ipinfo else None,
-                    "ipgyeol_low": ipinfo["low"] if ipinfo else None,
-                    "ipgyeol_type": ipinfo["cut_type"] if ipinfo else None,
-                    "ipgyeol_page": ipinfo.get("page") if ipinfo else None,
-                })
+                    tracks.append({
+                        "id": "auto_%s_%d" % (cat, i),
+                        "name": sub.get("name") or ("%s전형" % cat),
+                        "category": cat, "method": real_m or {},
+                        "gyogwa": real_g, "auto": True, "units": su,
+                    })
+                continue
+
+            units = _build_units(cat, cat_idx, fb)
             if units:
                 # 읽어서 채운 값이 최우선. 다만 **항목별로** 우선한다.
                 # (읽은 값에 method 만 있는데 통째로 덮어쓰면 파서가 찾은

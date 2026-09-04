@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-04 00:02",
+  "generated": "2026-09-04 12:30",
   "version": "1.4.0",
   "version_code": 140,
   "min_version_code": 100,
   "mobile_version": "1.1.0",
   "mobile_version_code": 2,
   "mobile_min_version_code": 1,
-  "app_version": "94148d344f94",
+  "app_version": "74b176d83dde",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -31,13 +31,13 @@
       "code": "cau",
       "name": "중앙대학교",
       "year": 2027,
-      "units": 204
+      "units": 239
     },
     {
       "code": "chungbuk",
       "name": "충북대학교",
       "year": 2027,
-      "units": 297
+      "units": 345
     },
     {
       "code": "chungnam",
@@ -49,7 +49,7 @@
       "code": "dankook",
       "name": "단국대학교",
       "year": 2027,
-      "units": 352
+      "units": 290
     },
     {
       "code": "dongguk",
@@ -85,7 +85,7 @@
       "code": "hufs",
       "name": "한국외국어대학교",
       "year": 2027,
-      "units": 323
+      "units": 317
     },
     {
       "code": "khu",
@@ -103,7 +103,7 @@
       "code": "kongju",
       "name": "국립공주대학교",
       "year": 2027,
-      "units": 343
+      "units": 317
     },
     {
       "code": "konkuk",
@@ -163,7 +163,7 @@
       "code": "yonsei_mirae",
       "name": "연세대학교(미래)",
       "year": 2027,
-      "units": 66
+      "units": 104
     }
   ]
 }

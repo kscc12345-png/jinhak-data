@@ -110,6 +110,25 @@ def evaluate(rule, student):
         return {"status": st, "margin": min(margins) if margins else None,
                 "label": rule.get("label", ""), "detail": details}
 
+    # 선택조건: 하위 조건 중 **하나만** 충족해도 됨
+    if t == "or":
+        subs = [evaluate(c, student) for c in rule.get("conditions", [])]
+        oks = [x for x in subs if x["status"] == "pass"]
+        if oks:
+            st = "pass"
+        elif any(x["status"] == "unknown" for x in subs):
+            st = "unknown"
+        else:
+            st = "fail"
+        pick = oks or subs
+        margins = [x["margin"] for x in pick
+                   if isinstance(x.get("margin"), (int, float))]
+        joiner = " 또는 " if not oks else " / "
+        return {"status": st,
+                "margin": max(margins) if margins else None,
+                "label": rule.get("label", ""),
+                "detail": joiner.join(x["detail"] for x in pick)}
+
     pool = rule.get("pool", ["국어", "수학", "영어", "탐구"])
     label = rule.get("label", "")
 
