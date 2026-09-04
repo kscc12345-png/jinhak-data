@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-04 13:07",
+  "generated": "2026-09-04 14:51",
   "version": "1.4.1",
   "version_code": 141,
   "min_version_code": 100,
@@ -55,7 +55,7 @@
       "code": "dongguk",
       "name": "동국대학교(서울)",
       "year": 2027,
-      "units": 256
+      "units": 344
     },
     {
       "code": "dongguk_wise",
@@ -112,6 +112,12 @@
       "units": 292
     },
     {
+      "code": "konkuk_glocal",
+      "name": "건국대학교(글로컬)",
+      "year": 2027,
+      "units": 103
+    },
+    {
       "code": "konyang",
       "name": "건양대학교",
       "year": 2027,
@@ -142,6 +148,12 @@
       "units": 158
     },
     {
+      "code": "u22c0e7c5",
+      "name": "고려대학교",
+      "year": 2027,
+      "units": 124
+    },
+    {
       "code": "uos",
       "name": "서울시립대학교",
       "year": 2027,
@@ -157,7 +169,7 @@
       "code": "yonsei",
       "name": "연세대학교(서울)",
       "year": 2027,
-      "units": 209
+      "units": 223
     },
     {
       "code": "yonsei_mirae",
