@@ -843,11 +843,17 @@ def convert_auto(auto):
                     su = _build_units(cat, cat_idx, fb, sub=sub)
                     if not su:
                         continue
+                    #  전형요소·반영교과도 세부 전형마다 다를 수 있다
+                    #  (연세대 미래는 교과우수자 일반형/추천형/기회균형이
+                    #   각각 다른 방법으로 뽑는다). 트랙에 적혀 있으면
+                    #  그것을 쓰고, 없으면 유형 공통값을 쓴다.
                     tracks.append({
                         "id": "auto_%s_%d" % (cat, i),
                         "name": sub.get("name") or ("%s전형" % cat),
-                        "category": cat, "method": real_m or {},
-                        "gyogwa": real_g, "auto": True, "units": su,
+                        "category": cat,
+                        "method": sub.get("method") or real_m or {},
+                        "gyogwa": sub.get("gyogwa") or real_g,
+                        "auto": True, "units": su,
                     })
                 continue
 
