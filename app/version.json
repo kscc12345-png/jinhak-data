@@ -1,7 +1,7 @@
 {
-  "version": "1.5.3",
-  "version_code": 153,
+  "version": "1.5.4",
+  "version_code": 154,
   "min_version_code": 100,
-  "updated_at": "2026-09-07 16:40",
-  "note": "줄바꿈에 잘린 학과 이름 68개 제거"
+  "updated_at": "2026-09-07 18:20",
+  "note": "가운뎃점·&로 이어진 학과 이름을 통째로 읽음"
 }
