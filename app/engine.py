@@ -124,6 +124,50 @@ def admission_band(su, gy, student, unit):
     return (band, round(score, 1), " · ".join(basis))
 
 
+#  판정이 무엇에 근거했는지. 라벨은 모바일(app_constants.dart)과 같은 말을 쓴다.
+BAND_SOURCE_LABEL = {
+    "jeongsi": "작년 정시 70%컷 기준",
+    "ipgyeol": "작년 합격컷 기준",
+    "gyogwa": "대학 반영기준 계산",
+    "heuristic": "참고용 추정",
+    "blocked": "판정 불가",
+}
+BAND_SOURCE_DETAIL = {
+    "jeongsi": "어디가에 공개된 작년 정시 70%컷 평균백분위와 비교했습니다.",
+    "ipgyeol": "어디가에 공개된 작년 합격자 70%컷 내신과 비교했습니다. "
+               "실제 합격 결과라 신뢰도가 높습니다.",
+    "gyogwa": "이 대학이 공시한 반영교과·반영비율·등급환산표로 계산했습니다.",
+    "heuristic": "이 학과는 작년 합격컷도, 대학의 반영교과 기준도 아직 "
+                 "확보되지 않았습니다. 수능최저 여유와 전 과목 단순평균으로 "
+                 "대략 추정한 값이라 실제와 다를 수 있습니다.",
+    "blocked": "수능최저 미충족 또는 성적 정보 부족으로 판정할 수 없습니다.",
+}
+
+
+def band_source(su, gy, student, unit, is_jeongsi):
+    """이 판정이 무엇에 근거했는가.
+
+    모바일은 처음부터 이걸 화면에 배지로 보여줬는데 **PC 에는 아예 없었다.**
+    발행본을 세어 보니 수시 판정의 36% 가 `heuristic`(추정)이다. 학생이
+    그걸 모르고 보면 추정값을 합격컷 대조와 같은 무게로 믿는다.
+
+    `admission_band` 와 **같은 조건**으로 판단해야 표시가 실제 판정과
+    어긋나지 않는다.
+    """
+    if is_jeongsi:
+        return "jeongsi"
+    st = (su or {}).get("status")
+    if st in ("fail", "unknown"):
+        return "blocked"
+    cut = (unit.get("ipgyeol_naesin") if unit else None) \
+        if features.IPGYEOL_ENABLED else None
+    if cut is not None and _naesin_avg(student) is not None:
+        return "ipgyeol"
+    if (gy or {}).get("applies") and (gy or {}).get("pct") is not None:
+        return "gyogwa"
+    return "heuristic"
+
+
 def _student_pct_avg(student):
     """학생 수능 평균백분위(국어·수학·탐구 평균). 입력 없으면 None."""
     b = student.get("baekbunwi") or {}
@@ -183,11 +227,25 @@ def eval_unit(univ, track, unit, student):
         # 학생이 지원 판단에 필요한 '기준' 원본.
         # gyogwa 는 계산 결과라서 어떤 교과를 어떤 환산표로 봤는지가 안 담긴다.
         "gyogwa_spec": track.get("gyogwa"),
+        # 평가 세부사항 — 서류·면접을 무엇으로 나눠 보는가(역량·비율·평가내용).
+        # 종합전형은 이게 없으면 '서류 100%' 라는 말밖에 남지 않는다.
+        "evaluation": track.get("evaluation"),
+        # 같은 점수면 무엇으로 가르는가 — 경계에 선 학생에게 필요하다
+        "tiebreak": track.get("tiebreak"),
+        # 학교폭력 조치사항 반영 · 면접 방식/시간/문항
+        "violence": track.get("violence"),
+        "interview": track.get("interview"),
+        # 이 학과가 직접 쓴 '이런 학생을 뽑는다' 와 중히 보는 교과
+        "injaesang": unit.get("injaesang"),
+        "gyogwa_focus": unit.get("gyogwa_focus"),
+        "profile_source": unit.get("profile_source"),
         "grade_weights": univ.get("grade_weights"),
         "suneung_groups": univ.get("suneung_groups"),
         "auto": bool(univ.get("auto") or track.get("auto")),
         "confidence": (rule or {}).get("confidence") if rule else None,
         "band": band, "band_score": bscore, "band_basis": bbasis,
+        # 이 판정이 무엇에 근거했는가 — 추정인지 작년 컷 대조인지
+        "band_source": band_source(su, gy, student, unit, is_jeongsi),
         # 상세/원문 정보
         "college": unit.get("college"),
         "match": unit.get("match"),
@@ -221,7 +279,12 @@ def run(student, univs=None, codes=None):
     cats = set(student.get("categories") or [])
     results = []
     for code, univ in univs.items():
-        if codes and code not in codes:
+        #  `codes` 는 **빈 목록도 뜻이 있다** — '해당하는 대학이 없다'.
+        #  예전에는 `if codes and ...` 였다. 빈 목록이 거짓이라 걸러내기를
+        #  건너뛰고 전체를 돌려줬고, 화면에서는 대학을 골라도 아무 것도
+        #  안 걸러지는 것처럼 보였다. 모바일 엔진은 처음부터 `!= null` 로
+        #  판정했는데 PC 만 달랐다.
+        if codes is not None and code not in codes:
             continue
         for track in univ.get("tracks", []):
             if cats and track["category"] not in cats:

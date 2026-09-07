@@ -6,7 +6,7 @@ lite.py — 진학 분석기 (라이트 뷰어)
 PDF 처리·OCR 없음. 원문은 미리 만들어진 이미지로 본다.
 없는 대학은 이메일로 관리자에게 요청.
 """
-import os, sys, json, webbrowser, threading, urllib.request, ssl
+import os, sys, re, json, webbrowser, threading, urllib.request, ssl
 import tkinter as tk
 from tkinter import ttk
 import customtkinter as ctk
@@ -430,14 +430,34 @@ class Lite(ctk.CTk):
             self.drawer.lift()
             self.drawer_open = True
             
+    def _click_inside(self, event, widget):
+        """클릭 지점이 이 위젯의 **자리** 안인가.
+
+        위젯 부모 사슬로 따지면 안 된다. '＋ 일반' 같은 과목 추가 버튼은
+        눌리는 순간 `_rebuild_electives()` 가 자기 자신을 파괴한다. 그러면
+        사슬을 탈 위젯이 사라져서 '드로어 밖 클릭' 으로 잘못 판정되고,
+        과목은 추가되는데 설정 창이 함께 닫혔다.
+
+        자리는 위젯이 사라져도 남는다. 그래서 좌표로 따진다.
+        """
+        try:
+            if not widget or not widget.winfo_exists():
+                return False
+            x, y = widget.winfo_rootx(), widget.winfo_rooty()
+            return (x <= event.x_root <= x + widget.winfo_width()
+                    and y <= event.y_root <= y + widget.winfo_height())
+        except Exception:
+            #  모르면 **닫지 않는다.** 잘못 닫는 쪽이 사용자에게 더 나쁘다.
+            return True
+
     def _on_app_click(self, event):
-        if hasattr(self, "drawer_open") and self.drawer_open:
-            w = event.widget
-            while w:
-                if w == self.drawer or w == getattr(self, "toggle_btn", None):
-                    return
-                w = getattr(w, "master", None)
-            self._toggle_drawer()
+        if not getattr(self, "drawer_open", False):
+            return
+        if self._click_inside(event, getattr(self, "drawer", None)):
+            return
+        if self._click_inside(event, getattr(self, "toggle_btn", None)):
+            return      # 토글 버튼은 자기 command 가 여닫는다
+        self._toggle_drawer()
 
     def _card(self, parent, **kw):
         return ctk.CTkFrame(parent, fg_color=C["card"], corner_radius=16,
@@ -466,6 +486,74 @@ class Lite(ctk.CTk):
     def _mini_entry(self, parent, w=64, ph=""):
         return ctk.CTkEntry(parent, width=w, justify="center", placeholder_text=ph,
                             fg_color=C["card2"], border_color=C["line"], font=(FONT, 13))
+
+    #  ── 과목 행 식별 ────────────────────────────────────────────
+    #
+    #  예전에는 입력칸을 `id(subj)` 로 찾았다. 파이썬은 객체가 사라지면
+    #  그 id 를 **다른 객체에 다시 쓴다.** 과목을 지우고 새로 추가하면
+    #  새 과목이 지운 과목의 입력칸을 물려받아, 값이 엉뚱한 행에 붙고
+    #  지운 행이 남아 있는 것처럼 보였다.
+    #
+    #  그래서 과목마다 사라지지 않는 번호를 붙인다.
+    def _subj_key(self, subj):
+        if not subj.get("sid"):
+            self._sid_seq = getattr(self, "_sid_seq", 0) + 1
+            subj["sid"] = "s%d" % self._sid_seq
+        return subj["sid"]
+
+    def _subj_sems(self, subj):
+        """이 과목을 듣는 학기들. 예전 자료(sems 없음)는 전 학기로 본다."""
+        if subj.get("fixed"):
+            return list(SEMESTERS)
+        s = subj.get("sems")
+        return list(s) if s else list(SEMESTERS)
+
+    def _subjects_of(self, sem):
+        """그 학기에 보여줄 과목들.
+
+        학기마다 듣는 과목이 다르다 — 2학년에 사회 셋, 3학년에 과학 넷을
+        들을 수 있다. 예전에는 목록이 하나뿐이어서 한 학기에 추가하면
+        모든 학기에 같이 생겼다.
+        """
+        return [s for s in self.subjects
+                if s.get("fixed") or sem in self._subj_sems(s)]
+
+    def _ask_subject_kind(self):
+        """추가할 과목의 구분을 묻는다 — 일반 / 사회 / 과학.
+
+        전에는 계열(자연·인문)로 갈라 놓았는데, 실제로는 사회와 과학을
+        섞어 듣는 학생이 많다. 그래서 계열과 무관하게 셋 다 고를 수 있게
+        하고, 무엇으로 넣을지 그때 묻는다.
+        """
+        win = self._top()
+        win.title("과목 추가")
+        win.geometry("360x190")
+        win.configure(fg_color=C["bg"])
+        win.resizable(False, False)
+        ctk.CTkLabel(win, text="어떤 과목을 추가할까요?",
+                     font=(FONT, 15, "bold"), text_color=C["text"]).pack(pady=(18, 4))
+        ctk.CTkLabel(win, text="반영교과를 가릴 때 씁니다 (계열과 무관합니다)",
+                     font=(FONT, 11), text_color=C["muted"]).pack(pady=(0, 12))
+        picked = {"v": None}
+
+        def pick(k):
+            picked["v"] = k
+            win.destroy()
+
+        row = ctk.CTkFrame(win, fg_color="transparent")
+        row.pack(pady=4)
+        for label, kind, col in (("일반", "일반", "blue"),
+                                 ("사회", "사회", "orange"),
+                                 ("과학", "과학", "purple")):
+            ctk.CTkButton(row, text=label, width=90, height=34, font=(FONT, 13),
+                          fg_color=C[col], hover_color=C[col],
+                          command=lambda k=kind: pick(k)).pack(side="left", padx=6)
+        ctk.CTkButton(win, text="취소", width=90, height=28, font=(FONT, 11),
+                      fg_color=C["card2"], hover_color=C["line"],
+                      text_color=C["text"], command=win.destroy).pack(pady=(10, 0))
+        win.grab_set()
+        self.wait_window(win)
+        return picked["v"]
 
     def _build(self):
         self.grid_columnconfigure(0, weight=1)
@@ -636,12 +724,13 @@ class Lite(ctk.CTk):
         ctk.CTkLabel(h_row, text="시수", width=48, font=(FONT, 11), text_color=C["muted"]).pack(side="left", padx=3)
 
         for subj in [s for s in self.subjects if s["fixed"]]:
+            key = self._subj_key(subj)
             row = ctk.CTkFrame(grid, fg_color="transparent"); row.pack(fill="x", pady=2)
             ctk.CTkLabel(row, text=subj["name"], width=64, font=(FONT, 12), text_color=C["text"]).pack(side="left")
-            eg = self._mini_entry(row, 48, ph="등급"); eg.pack(side="left", padx=3); self.grade_entries[id(subj)] = eg
-            ea = self._mini_entry(row, 48, ph="A/B"); ea.pack(side="left", padx=3); self.ach_entries[id(subj)] = ea
-            er = self._mini_entry(row, 48, ph="점수"); er.pack(side="left", padx=3); self.raw_entries[id(subj)] = er
-            eu = self._mini_entry(row, 48, ph="시수"); eu.pack(side="left", padx=3); self.unit_entries[id(subj)] = eu
+            eg = self._mini_entry(row, 48, ph="1~9"); eg.pack(side="left", padx=3); self.grade_entries[key] = eg
+            ea = self._mini_entry(row, 48, ph="A/B/C"); ea.pack(side="left", padx=3); self.ach_entries[key] = ea
+            er = self._mini_entry(row, 48, ph="0~100"); er.pack(side="left", padx=3); self.raw_entries[key] = er
+            eu = self._mini_entry(row, 48, ph="단위"); eu.pack(side="left", padx=3); self.unit_entries[key] = eu
             for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
         self.elec_frame = ctk.CTkFrame(c, fg_color="transparent")
         self.elec_frame.pack(fill="x", padx=16, pady=(2, 4))
@@ -833,53 +922,119 @@ class Lite(ctk.CTk):
         self.recompute()
 
     def _rebuild_electives(self):
-        for w in self.elec_frame.winfo_children(): w.destroy()
-        yr = self.active_semester if hasattr(self, 'active_semester') else (self.active_year if hasattr(self, 'active_year') else '1')
-        for subj in [s for s in self.subjects if not s["fixed"]]:
-            row = ctk.CTkFrame(self.elec_frame, fg_color=C["card2"], corner_radius=8); row.pack(fill="x", pady=2)
-            ne = ctk.CTkEntry(row, width=54, fg_color=C["card"], border_color=C["line"], font=(FONT, 12))
-            ne.insert(0, subj["name"]); ne.pack(side="left", padx=(8,0), pady=4)
-            ne.bind("<KeyRelease>", lambda _=None, s=subj, w=ne: (s.update(name=w.get()), self._queue_recompute()))
-            
-            eg = self._mini_entry(row, 44, ph="등급"); eg.pack(side="left", padx=3); self.grade_entries[id(subj)] = eg
-            ea = self._mini_entry(row, 44, ph="A/B"); ea.pack(side="left", padx=3); self.ach_entries[id(subj)] = ea
-            er = self._mini_entry(row, 44, ph="점수"); er.pack(side="left", padx=3); self.raw_entries[id(subj)] = er
-            eu = self._mini_entry(row, 44, ph="시수"); eu.pack(side="left", padx=3); self.unit_entries[id(subj)] = eu
-            for ex in [eg, ea, er, eu]: ex.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
-            
-            ctk.CTkButton(row, text="✕", width=24, height=24, fg_color=C["card"], hover_color=C["red"], font=(FONT, 11), text_color=C["muted"], command=lambda s=subj: self._remove_subject(s)).pack(side="right", padx=6)
-        
-        add = ctk.CTkFrame(self.elec_frame, fg_color="transparent"); add.pack(fill="x", pady=(4, 2))
-        ctk.CTkButton(add, text="＋ 일반", width=70, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["blue"], command=lambda: self._add_subject("일반")).pack(side="left", padx=(0, 4))
-        ctk.CTkButton(add, text="＋ 과학", width=70, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["purple"], command=lambda: self._add_subject("과학")).pack(side="left", padx=(0, 4))
-        ctk.CTkButton(add, text="＋ 사회", width=70, height=26, font=(FONT, 11), fg_color=C["card2"], hover_color=C["orange"], command=lambda: self._add_subject("사회")).pack(side="left")
-        
+        #  이 학기에 안 보이는 과목의 입력칸은 **버려야 한다.** 안 버리면
+        #  파괴된 위젯을 붙들고 있다가 학기를 바꿀 때 터진다.
+        keep = {self._subj_key(s) for s in self.subjects if s.get("fixed")}
+        for store in (self.grade_entries, self.ach_entries,
+                      self.raw_entries, self.unit_entries):
+            for k in [k for k in store if k not in keep]:
+                store.pop(k, None)
+        for w in self.elec_frame.winfo_children():
+            w.destroy()
+        yr = getattr(self, "active_semester", None) or "1-1"
+        #  머리글 — 어느 칸이 무엇인지 한 번만 알려 준다
+        hdr = ctk.CTkFrame(self.elec_frame, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(hdr, text="구분", width=40, font=(FONT, 10),
+                     text_color=C["muted"]).pack(side="left", padx=(8, 0))
+        for t, w in (("등급", 44), ("성취도", 44), ("원점수", 44), ("시수", 44)):
+            ctk.CTkLabel(hdr, text=t, width=w, font=(FONT, 10),
+                         text_color=C["muted"]).pack(side="left", padx=3)
+        ctk.CTkLabel(hdr, text="과목명", font=(FONT, 10),
+                     text_color=C["muted"]).pack(side="left", padx=(6, 0))
+
+        #  이 학기에 듣는 과목만 그린다
+        for subj in [s for s in self._subjects_of(yr) if not s.get("fixed")]:
+            key = self._subj_key(subj)
+            row = ctk.CTkFrame(self.elec_frame, fg_color=C["card2"], corner_radius=8)
+            row.pack(fill="x", pady=2)
+            ctk.CTkLabel(row, text=subj.get("kind") or "일반", width=40,
+                         font=(FONT, 11), text_color=C["muted"]).pack(side="left",
+                                                                      padx=(8, 0))
+            eg = self._mini_entry(row, 44, ph="1~9"); eg.pack(side="left", padx=3)
+            self.grade_entries[key] = eg
+            ea = self._mini_entry(row, 44, ph="A/B/C"); ea.pack(side="left", padx=3)
+            self.ach_entries[key] = ea
+            er = self._mini_entry(row, 44, ph="0~100"); er.pack(side="left", padx=3)
+            self.raw_entries[key] = er
+            eu = self._mini_entry(row, 44, ph="단위"); eu.pack(side="left", padx=3)
+            self.unit_entries[key] = eu
+            for ex in (eg, ea, er, eu):
+                ex.bind("<KeyRelease>", lambda _=None: self._queue_recompute())
+
+            #  과목명은 **시수 옆**에 둔다. 빈 칸이면 무엇을 넣는지 보여준다.
+            ne = ctk.CTkEntry(row, width=112, fg_color=C["card"],
+                              border_color=C["line"], font=(FONT, 12),
+                              placeholder_text="과목명")
+            nm = str(subj.get("name") or "")
+            if nm and not re.fullmatch(r"(?:일반|사회|과학)\d*", nm):
+                ne.insert(0, nm)       # 자동으로 지은 이름은 안내 글자로 남긴다
+            ne.pack(side="left", padx=(6, 0), pady=4)
+            ne.bind("<KeyRelease>",
+                    lambda _=None, s=subj, w=ne: (s.update(name=w.get()),
+                                                  self._queue_recompute()))
+
+            ctk.CTkButton(row, text="✕", width=24, height=24, fg_color=C["card"],
+                          hover_color=C["red"], font=(FONT, 11),
+                          text_color=C["muted"],
+                          command=lambda s=subj: self._remove_subject(s)
+                          ).pack(side="right", padx=6)
+
+        add = ctk.CTkFrame(self.elec_frame, fg_color="transparent")
+        add.pack(fill="x", pady=(4, 2))
+        ctk.CTkButton(add, text="＋ 과목 추가", width=110, height=26,
+                      font=(FONT, 11), fg_color=C["card2"], hover_color=C["blue"],
+                      command=self._add_subject).pack(side="left")
+        ctk.CTkLabel(add, text=f"  ({yr} 학기에만 추가됩니다)", font=(FONT, 10),
+                     text_color=C["muted"]).pack(side="left")
+
         self._load_year_entries(yr)
         
-    def _add_subject(self, kind):
+    def _add_subject(self, kind=None):
+        """과목을 **이 학기에만** 더한다.
+
+        학기마다 듣는 과목이 다르다. 전에는 목록이 하나뿐이어서 한 학기에
+        추가하면 여섯 학기에 모두 생겼고, 개수를 학년별로 다르게 둘 수
+        없었다.
+        """
+        if kind is None:
+            kind = self._ask_subject_kind()
+            if not kind:
+                return
         self._save_year_entries(self.active_semester)
-        n = sum(1 for s in self.subjects if s.get("kind") == kind)
-        d_val = lambda: {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
-        self.subjects.append({
-            "name": f"{kind}{n+1}", 
-            "fixed": False, 
-            "kind": kind,
-            "grade": d_val(), 
-            "ach": d_val(), 
-            "raw": d_val(), 
-            "unit": d_val()
-        })
-        self._rebuild_electives(); self.recompute()
+        sem = getattr(self, "active_semester", None) or "1-1"
+        d_val = (lambda: {s: "" for s in SEMESTERS})
+        subj = {"name": "", "fixed": False, "kind": kind, "sems": [sem],
+                "grade": d_val(), "ach": d_val(), "raw": d_val(),
+                "unit": d_val()}
+        self._subj_key(subj)
+        self.subjects.append(subj)
+        self._rebuild_electives()
+        self.recompute()
 
     def _remove_subject(self, subj):
+        """이 학기에서만 뺀다. 어느 학기에도 안 남으면 아예 지운다.
+
+        전 학기에서 통째로 지우면 2학년 것을 지우려다 3학년 것까지
+        사라진다.
+        """
         self._save_year_entries(self.active_semester)
-        self.subjects = [s for s in self.subjects if s is not subj]
-        sid = id(subj)
-        self.grade_entries.pop(sid, None)
-        self.ach_entries.pop(sid, None)
-        self.raw_entries.pop(sid, None)
-        self.unit_entries.pop(sid, None)
-        self._rebuild_electives(); self.recompute()
+        sem = getattr(self, "active_semester", None) or "1-1"
+        key = self._subj_key(subj)
+        sems = [x for x in self._subj_sems(subj) if x != sem]
+        for d in (subj.get("grade"), subj.get("ach"), subj.get("raw"),
+                  subj.get("unit")):
+            if isinstance(d, dict):
+                d[sem] = ""
+        if sems:
+            subj["sems"] = sems
+        else:
+            self.subjects = [s for s in self.subjects if s is not subj]
+            for d in (self.grade_entries, self.ach_entries,
+                      self.raw_entries, self.unit_entries):
+                d.pop(key, None)
+        self._rebuild_electives()
+        self.recompute()
 
     def _rebuild_tamgu(self):
         for w in self.tamgu_frame.winfo_children():
@@ -925,26 +1080,38 @@ class Lite(ctk.CTk):
         self.tamgu = [x for x in self.tamgu if x is not t]
         self._rebuild_tamgu(); self.recompute()
 
+    #  입력칸은 **과목의 고정 번호**로 찾는다. id(객체) 로 찾으면 파이썬이
+    #  사라진 객체의 id 를 재사용해 값이 다른 행에 붙는다(_subj_key 주석).
     def _load_year_entries(self, yr):
         for subj in self.subjects:
-            sid = id(subj)
-            if sid in self.grade_entries: self.grade_entries[sid].delete(0, "end"); self.grade_entries[sid].insert(0, str(subj.get("grade", {}).get(yr, "")))
-            if sid in self.ach_entries: self.ach_entries[sid].delete(0, "end"); self.ach_entries[sid].insert(0, str(subj.get("ach", {}).get(yr, "")))
-            if sid in self.raw_entries: self.raw_entries[sid].delete(0, "end"); self.raw_entries[sid].insert(0, str(subj.get("raw", {}).get(yr, "")))
-            if sid in self.unit_entries: self.unit_entries[sid].delete(0, "end"); self.unit_entries[sid].insert(0, str(subj.get("unit", {}).get(yr, "")))
+            key = self._subj_key(subj)
+            for store, field in ((self.grade_entries, "grade"),
+                                 (self.ach_entries, "ach"),
+                                 (self.raw_entries, "raw"),
+                                 (self.unit_entries, "unit")):
+                e = store.get(key)
+                if e is None:
+                    continue
+                e.delete(0, "end")
+                v = (subj.get(field) or {}).get(yr, "")
+                if v not in ("", None):
+                    e.insert(0, str(v))
 
     def _save_year_entries(self, yr):
-        d_val = lambda: {"1-1": "", "1-2": "", "2-1": "", "2-2": "", "3-1": "", "3-2": ""}
+        d_val = (lambda: {s: "" for s in SEMESTERS})
         for subj in self.subjects:
-            sid = id(subj)
-            if "grade" not in subj: subj["grade"] = d_val()
-            if "ach" not in subj: subj["ach"] = d_val()
-            if "raw" not in subj: subj["raw"] = d_val()
-            if "unit" not in subj: subj["unit"] = d_val()
-            if sid in self.grade_entries: subj["grade"][yr] = self.grade_entries[sid].get().strip()
-            if sid in self.ach_entries: subj["ach"][yr] = self.ach_entries[sid].get().strip().upper()
-            if sid in self.raw_entries: subj["raw"][yr] = self.raw_entries[sid].get().strip()
-            if sid in self.unit_entries: subj["unit"][yr] = self.unit_entries[sid].get().strip()
+            key = self._subj_key(subj)
+            for store, field in ((self.grade_entries, "grade"),
+                                 (self.ach_entries, "ach"),
+                                 (self.raw_entries, "raw"),
+                                 (self.unit_entries, "unit")):
+                if not isinstance(subj.get(field), dict):
+                    subj[field] = d_val()
+                e = store.get(key)
+                if e is None:
+                    continue
+                val = e.get().strip()
+                subj[field][yr] = val.upper() if field == "ach" else val
 
     def _switch_year(self, val):
         self._save_year_entries(self.active_semester)
@@ -1160,10 +1327,23 @@ class Lite(ctk.CTk):
         conv = engine.convert_5to9 if self.five_var.get() else (lambda g: g)
         
         naesin = {}
+        auto_n = 0
         for subj in self.subjects:
-            nm = (subj["name"] or "").strip()
+            nm = (subj.get("name") or "").strip()
             if not nm:
-                continue
+                #  이름을 아직 안 적었어도 **성적은 세어야 한다.** 예전에는
+                #  이름이 비면 건너뛰어서, 등급만 넣은 과목이 내신 평균에
+                #  안 들어갔다. 반영교과 판정에는 이름이 아니라 kind 를
+                #  쓰므로 자리표시자로 충분하다.
+                if not any((subj.get(f) or {}).get(s)
+                           for f in ("grade", "ach", "raw")
+                           for s in SEMESTERS):
+                    continue        # 아무 것도 안 넣은 빈 행이다
+                auto_n += 1
+                nm = "%s%d" % (subj.get("kind") or "선택", auto_n)
+                while nm in naesin:
+                    auto_n += 1
+                    nm = "%s%d" % (subj.get("kind") or "선택", auto_n)
             weighted_sum = 0
             total_units = 0
             valid_semesters = 0
@@ -1175,10 +1355,11 @@ class Lite(ctk.CTk):
                 def get_sem(sem):
                     if not self.sem_active.get(sem, True):
                         return None, 0
-                    g = subj["grade"].get(sem, "")
-                    a = subj["ach"].get(sem, "")
-                    r = subj["raw"].get(sem, "")
-                    u = subj["unit"].get(sem, "")
+                    #  예전 자료에는 없는 칸이 있다 — get 으로 읽는다
+                    g = (subj.get("grade") or {}).get(sem, "")
+                    a = (subj.get("ach") or {}).get(sem, "")
+                    r = (subj.get("raw") or {}).get(sem, "")
+                    u = (subj.get("unit") or {}).get(sem, "")
                     score = None
                     if g:
                         try: score = conv(float(g))
@@ -1208,7 +1389,7 @@ class Lite(ctk.CTk):
                     
             if valid_semesters > 0 and subject_weight_sum > 0:
                 weighted_avg = round(weighted_sum / subject_weight_sum, 2)
-                naesin[nm] = {"grade": weighted_avg, "units": total_units, "yearly_grades": yearly_grades, "raw_data": subj["raw"], "ach_data": subj["ach"], "kind": subj.get("kind")}
+                naesin[nm] = {"grade": weighted_avg, "units": total_units, "yearly_grades": yearly_grades, "raw_data": subj.get("raw") or {}, "ach_data": subj.get("ach") or {}, "kind": subj.get("kind")}
             
         st["naesin"] = naesin
         su = dict(self.student["suneung"])
@@ -1236,12 +1417,28 @@ class Lite(ctk.CTk):
         return st
 
     def recompute(self):
+        """다시 계산하고 표를 채운다.
+
+        예외가 나면 **알린다.** Tk 는 콜백에서 터진 예외를 화면에 알리지
+        않아서, 필터를 눌러도 아무 일도 안 일어나는 것처럼 보인다.
+        """
+        try:
+            self._recompute()
+        except Exception as e:
+            self._toast("⚠ 목록을 다시 계산하지 못했습니다: %s" % e, ms=8000)
+            raise
+
+    def _recompute(self):
         if not self.univs:
             return
         st = self._collect_student()
         uv = self.univ_var.get()
-        code = [c for c, u in self.univs.items() if u["name"] == uv] if uv != "전체 대학" else None
+        code = ([c for c, u in self.univs.items() if u["name"] == uv]
+                if uv != "전체 대학" else None)
         res = engine.run(st, univs=self.univs, codes=code)
+        #  코드로 못 찾는 경우(이름 표기가 어긋남)까지 대비해 이름으로 한 번 더
+        if uv != "전체 대학":
+            res = [r for r in res if r.get("univ") == uv]
         yr = self.year_var.get()
         if yr != "전체":
             y = int("".join(ch for ch in yr if ch.isdigit()) or 0)
@@ -1295,6 +1492,9 @@ class Lite(ctk.CTk):
         except Exception:
             pass
 
+    #  예외를 삼키지 않는다. `except: pass` 로 두면 눌러도 아무 일이
+    #  안 일어나고, 사용자는 '먹통' 이라고밖에 말할 수 없다. 무엇이
+    #  잘못됐는지 화면에 알려야 고칠 수 있다.
     def _on_double(self, event):
         # 더블클릭 시 상세 정보 창 열기 (출처 열 제외)
         col = self.tree.identify_column(event.x)
@@ -1303,22 +1503,31 @@ class Lite(ctk.CTk):
             return
         try:
             idx = int(rowid)
-            if 0 <= idx < len(self.results):
-                r = self.results[idx]
-                if col != "#7":
-                    self.show_detail(r)
-        except Exception:
-            pass
+        except ValueError:
+            return
+        if not (0 <= idx < len(self.results)) or col == "#7":
+            return
+        try:
+            self.show_detail(self.results[idx])
+        except Exception as e:
+            self._toast("⚠ 상세 정보를 열지 못했습니다: %s" % e, ms=8000)
+            raise
 
     def _on_key_select(self, event=None):
         sel = self.tree.selection()
-        if sel:
-            try:
-                idx = int(sel[0])
-                if 0 <= idx < len(self.results):
-                    self.show_detail(self.results[idx])
-            except Exception:
-                pass
+        if not sel:
+            return
+        try:
+            idx = int(sel[0])
+        except ValueError:
+            return
+        if not (0 <= idx < len(self.results)):
+            return
+        try:
+            self.show_detail(self.results[idx])
+        except Exception as e:
+            self._toast("⚠ 상세 정보를 열지 못했습니다: %s" % e, ms=8000)
+            raise
 
     # ---------- 상세 ----------
     def _criteria_box(self, parent, x):
@@ -1391,7 +1600,11 @@ class Lite(ctk.CTk):
         m = x.get("method")
         msrc = m.get("_source") if isinstance(m, dict) else None
         if isinstance(m, dict) and m and not _is_placeholder(m):
-            parts = [f"{k} {v}%" for k, v in m.items()
+            #  요강이 '점' 으로 적었으면 그대로 '점' 이라고 말한다.
+            #  충북대는 '학생부교과 80점' 이라고 적는데 이걸 '80%' 로
+            #  보여주면 나머지 20% 가 있는 것처럼 읽힌다.
+            _u = "점" if m.get("_unit") == "점" else "%"
+            parts = [f"{k} {v}{_u}" for k, v in m.items()
                      if isinstance(v, (int, float)) and v > 0]
             if parts:
                 rows.append(("전형요소", " + ".join(parts)))
@@ -1454,6 +1667,168 @@ class Lite(ctk.CTk):
                     g = rr.get("group", "")
                     return f"{g}" if n is None else f"{g} 중 {pick} {n}과목"
                 rows.append(("과목선택", ", ".join(_one(rr) for rr in sel)))
+
+        #  평가 세부사항 — 서류·면접을 무엇으로 나눠 보는가.
+        #  종합전형에서 '서류 100%' 만 알려 주면 학생이 준비할 것을 모른다.
+        #  요강에 표로 실려 있으니 그대로 보여준다.
+        ev = x.get("evaluation")
+        if isinstance(ev, dict):
+            for kind, label in (("서류", "서류평가"), ("면접", "면접평가")):
+                blk = ev.get(kind)
+                if not isinstance(blk, dict):
+                    continue
+                items = blk.get("items") or []
+                if not items:
+                    continue
+                head = []
+                for it in items:
+                    if not isinstance(it, dict):
+                        continue
+                    nm = str(it.get("item") or "")
+                    if not nm:
+                        continue
+                    w, wb = it.get("weight"), it.get("weights_by")
+                    pt, ms = it.get("points"), it.get("max_score")
+                    if isinstance(w, (int, float)):
+                        head.append(f"{nm} {int(w)}%")
+                    elif isinstance(wb, dict) and wb:
+                        head.append(nm + " " + "/".join(f"{v}%" for v in wb.values()))
+                    elif isinstance(pt, (int, float)):
+                        #  비율이 아니라 배점이다(충북대 서류평가는 80점 만점)
+                        head.append(f"{nm} {pt:g}점")
+                    elif isinstance(ms, (int, float)):
+                        head.append(f"{nm} 최대 {ms:g}점")
+                    else:
+                        head.append(nm)
+                if head:
+                    rows.append((label, " · ".join(head)))
+                for it in items:
+                    if not isinstance(it, dict):
+                        continue
+                    cont = [str(c) for c in (it.get("content") or []) if str(c).strip()]
+                    if not cont:
+                        continue
+                    area = str(it.get("area") or "")
+                    nm = str(it.get("item") or "")
+                    ttl = f"{area} · {nm}" if area and area != nm else nm
+                    rows.append(("└ " + ttl, " / ".join(cont)))
+                where = []
+                if blk.get("section"):
+                    where.append(f"요강 「{blk['section']}」")
+                if blk.get("printed_page"):
+                    where.append(f"{blk['printed_page']}쪽")
+                if blk.get("from_text"):
+                    where.append("표가 아닌 본문에서 읽음")
+                if where:
+                    rows.append(("└ 위치", " · ".join(where)))
+            fmt = ev.get("interview_format")
+            if isinstance(fmt, dict) and fmt:
+                parts = []
+                if fmt.get("minutes"):
+                    parts.append(f"{fmt['minutes']}분 내외")
+                if fmt.get("examiners"):
+                    parts.append(f"면접관 {fmt['examiners']}인 이상")
+                if fmt.get("kinds"):
+                    parts.append("·".join(str(k) for k in fmt["kinds"]))
+                if parts:
+                    rows.append(("면접 방식", " · ".join(parts)))
+
+        #  면접 방식·시간·문항 — '면접 30%' 만으로는 준비할 것을 모른다
+        itv = x.get("interview")
+        if isinstance(itv, dict):
+            irows = itv.get("rows") or []
+            if irows:
+                rows.append(("면접 안내", "요강이 밝힌 방식과 시간"))
+                for r in irows:
+                    if not isinstance(r, dict):
+                        continue
+                    bits = [str(r[k]) for k in ("way", "time") if r.get(k)]
+                    if r.get("examiners"):
+                        bits.append(f"면접관 {r['examiners']}인")
+                    if not bits:
+                        continue
+                    sc = str(r.get("scope") or "").strip()
+                    rows.append(("└ " + sc if sc else "└", " · ".join(bits)))
+            qs = itv.get("questions") or []
+            if qs:
+                rows.append(("면접 문항", "요강에 실린 예시"))
+                for q in qs:
+                    if not isinstance(q, dict) or not q.get("q"):
+                        continue
+                    head = str(q.get("area") or "").strip()
+                    rows.append(("└ " + head if head else "└", str(q["q"])))
+            if irows or qs:
+                iw = []
+                if itv.get("section"):
+                    iw.append(f"요강 「{itv['section']}」")
+                if itv.get("printed_page"):
+                    iw.append(f"{itv['printed_page']}쪽")
+                if iw:
+                    rows.append(("└ 위치", " · ".join(iw)))
+
+        #  학교폭력 조치사항 — 합불에 직접 영향을 준다. 원문을 그대로 옮긴다.
+        vio = x.get("violence")
+        if isinstance(vio, dict):
+            vt = vio.get("table") or {}
+            if vt:
+                rows.append(("학교폭력 감점",
+                             " · ".join(f"{k} {v}" for k, v in vt.items())))
+            vtx = vio.get("text") or []
+            if vtx:
+                if not vt:
+                    rows.append(("학교폭력 반영", "요강 원문"))
+                for t in vtx:
+                    if str(t).strip():
+                        rows.append(("└", str(t).strip()))
+            if vt or vtx:
+                vw = []
+                if vio.get("section"):
+                    vw.append(f"요강 「{vio['section']}」")
+                if vio.get("printed_page"):
+                    vw.append(f"{vio['printed_page']}쪽")
+                if vw:
+                    rows.append(("└ 위치", " · ".join(vw)))
+
+        #  같은 점수면 무엇으로 가르는가 — 경계에 선 학생에게 필요하다
+        tie = x.get("tiebreak")
+        if isinstance(tie, dict) and tie.get("items"):
+            rows.append(("동점자", "같은 점수일 때 가르는 기준"))
+            for t in tie["items"]:
+                if not isinstance(t, dict) or not t.get("rule"):
+                    continue
+                st = str(t.get("stage") or "").strip()
+                rows.append(("└ " + st if st else "└", str(t["rule"])))
+            tw = []
+            if tie.get("section"):
+                tw.append(f"요강 「{tie['section']}」")
+            if tie.get("printed_page"):
+                tw.append(f"{tie['printed_page']}쪽")
+            if tw:
+                rows.append(("└ 위치", " · ".join(tw)))
+
+        #  이 학과가 중히 보는 교과 — 과목 선택을 앞둔 학생에게 가장 직접적이다
+        foc = x.get("gyogwa_focus")
+        if isinstance(foc, dict):
+            if foc.get("core"):
+                rows.append(("핵심교과", str(foc["core"])))
+            if foc.get("recommend"):
+                rows.append(("권장교과", str(foc["recommend"])))
+        #  이 학과가 직접 쓴 '이런 학생을 뽑는다'
+        inja = x.get("injaesang")
+        if isinstance(inja, list) and inja:
+            rows.append(("인재상", "학과가 밝힌 선발 기준"))
+            for s in inja:
+                if str(s).strip():
+                    rows.append(("└", str(s).strip()))
+        psrc = x.get("profile_source")
+        if isinstance(psrc, dict):
+            w = []
+            if isinstance(inja, list) and inja and psrc.get("injaesang_printed_page"):
+                w.append(f"인재상 {psrc['injaesang_printed_page']}쪽")
+            if isinstance(foc, dict) and foc and psrc.get("focus_printed_page"):
+                w.append(f"핵심교과 {psrc['focus_printed_page']}쪽")
+            if w:
+                rows.append(("└ 위치", "요강 " + " · ".join(w)))
 
         gw = x.get("grade_weights")
         if isinstance(gw, dict) and isinstance(gw.get("weights"), dict):
@@ -1642,6 +2017,24 @@ class Lite(ctk.CTk):
                     ctk.CTkLabel(box, text="※ 백분위=높을수록 우수. 왼쪽에 수능 백분위를 넣으면 자동 비교됩니다.",
                                  font=("Malgun Gothic", 10), text_color=C["muted"]
                                  ).pack(anchor="w", padx=14, pady=(2, 8))
+                #  **이 판정이 무엇에 근거했는지 먼저 밝힌다.**
+                #  발행본 수시 판정의 36% 는 추정이다. 그걸 모르고 보면
+                #  학생이 추정값을 작년 합격컷 대조와 같은 무게로 믿는다.
+                #  모바일은 처음부터 배지로 보여줬는데 PC 에만 없었다.
+                _bs = x.get("band_source") or ""
+                _lbl = engine.BAND_SOURCE_LABEL.get(_bs)
+                if _lbl:
+                    _warn = (_bs == "heuristic")
+                    ctk.CTkLabel(card,
+                                 text=("⚠ " if _warn else "✓ ") + _lbl,
+                                 font=("Malgun Gothic", 12, "bold"),
+                                 text_color=(C["orange"] if _warn else C["green"])
+                                 ).pack(anchor="w", padx=16, pady=(2, 0))
+                    ctk.CTkLabel(card,
+                                 text=engine.BAND_SOURCE_DETAIL.get(_bs, ""),
+                                 font=("Malgun Gothic", 10), justify="left",
+                                 wraplength=620, text_color=C["muted"]
+                                 ).pack(anchor="w", padx=16, pady=(0, 2))
                 ctk.CTkLabel(card, text=f"밴드 근거: {x.get('band_basis','-')}  ·  매칭 {x.get('match','-')}",
                              font=("Malgun Gothic", 11), text_color=C["muted"]).pack(anchor="w", padx=16, pady=(0, 4))
                 if x.get("sources"):

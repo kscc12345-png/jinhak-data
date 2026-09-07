@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-07 14:33",
-  "version": "1.5.4",
-  "version_code": 154,
+  "generated": "2026-09-08 08:31",
+  "version": "1.7.0",
+  "version_code": 170,
   "min_version_code": 100,
   "mobile_version": "1.1.0",
   "mobile_version_code": 2,
   "mobile_min_version_code": 1,
-  "app_version": "ac291db6ff47",
+  "app_version": "a5c4cfdeeb6a",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -20,8 +20,8 @@
     "suneung.py",
     "version.json"
   ],
-  "admin_version": "1.0.6",
-  "admin_version_code": 106,
+  "admin_version": "1.2.0",
+  "admin_version_code": 120,
   "admin_min_version_code": 100,
   "universities": [
     {
@@ -115,6 +115,12 @@
       "units": 284
     },
     {
+      "code": "konkuk_glocal",
+      "name": "건국대학교(글로컬)",
+      "year": 2027,
+      "units": 72
+    },
+    {
       "code": "konyang",
       "name": "건양대학교",
       "year": 2027,
@@ -142,7 +148,13 @@
       "code": "snu",
       "name": "서울대학교",
       "year": 2027,
-      "units": 158
+      "units": 203
+    },
+    {
+      "code": "u22c0e7c5",
+      "name": "고려대학교",
+      "year": 2027,
+      "units": 122
     },
     {
       "code": "uos",

@@ -676,6 +676,10 @@ def _track_criteria(tmethods, gyoinfo, cat):
     method = dict(info.get("elements") or {})
     if not method:
         return None, None
+    #  요강이 '점' 으로 적은 전형요소는 %로 말하면 안 된다.
+    #  충북대는 '학생부교과 80점' 이라고 적는다 — 80점 만점 전형요소다.
+    if info.get("unit") == "점":
+        method["_unit"] = "점"
     method["_source"] = {
         "page": info.get("page"), "section": info.get("section"),
         "text": info.get("text"),
@@ -974,6 +978,51 @@ def convert_auto(auto):
                                "suneung_rule": {"type": "none", "label": "미검출"},
                                "source_file": src_file}],
                 })
+
+    #  평가 세부사항은 전형 유형별로 하나씩 붙인다.
+    #  트랙을 만드는 자리가 네 군데라 여기서 한 번에 얹는다.
+    evals = auto.get("evaluation") or {}
+    ties = auto.get("tiebreak") or {}
+    #  학교폭력 반영과 면접 안내는 대학 공통이라 모든 전형에 같이 붙인다.
+    #  (요강도 전형별로 나눠 적지 않고 공통사항으로 한 번 적는다)
+    vio = auto.get("violence") or {}
+    itv = auto.get("interview") or {}
+    if evals or ties or vio or itv:
+        for tr in tracks:
+            ev = evals.get(tr.get("category"))
+            if ev:
+                tr["evaluation"] = ev
+            tb = ties.get(tr.get("category"))
+            if tb:
+                tr["tiebreak"] = tb
+            if vio:
+                tr["violence"] = vio
+            if itv:
+                tr["interview"] = itv
+
+    #  모집단위별 인재상·핵심교과는 **학과마다** 다르므로 학과에 붙인다.
+    #  이름이 요강 표기와 조금씩 다르므로(★·공백·가운뎃점) 정규화 색인을
+    #  쓴다 — 정원 매칭에서 이미 겪은 문제다(§6-21).
+    prof = auto.get("unit_profile") or {}
+    inja, focus = prof.get("injaesang") or {}, prof.get("gyogwa_focus") or {}
+    if inja or focus:
+        psrc = prof.get("_source") or {}
+        ix_i, ix_f = {}, {}
+        for src, ix in ((inja, ix_i), (focus, ix_f)):
+            for k, v in src.items():
+                for key in (k, _norm_unit(k), _base_unit(k)):
+                    if key:
+                        ix.setdefault(key, v)
+        for tr in tracks:
+            for u in tr.get("units", []):
+                nm = u.get("unit") or ""
+                for key in (nm, _norm_unit(nm), _base_unit(nm)):
+                    if key in ix_i and "injaesang" not in u:
+                        u["injaesang"] = ix_i[key]
+                    if key in ix_f and "gyogwa_focus" not in u:
+                        u["gyogwa_focus"] = ix_f[key]
+                if ("injaesang" in u or "gyogwa_focus" in u) and psrc:
+                    u["profile_source"] = psrc
 
     return {
         "code": auto["code"], "name": auto["name"],
