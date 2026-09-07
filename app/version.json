@@ -1,7 +1,7 @@
 {
-  "version": "1.5.2",
-  "version_code": 152,
+  "version": "1.5.3",
+  "version_code": 153,
   "min_version_code": 100,
-  "updated_at": "2026-09-07 14:00",
-  "note": "모집인원 — 이름 정규화 매칭 · 총 모집인원 표시"
+  "updated_at": "2026-09-07 16:40",
+  "note": "줄바꿈에 잘린 학과 이름 68개 제거"
 }
