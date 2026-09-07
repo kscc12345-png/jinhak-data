@@ -1,7 +1,7 @@
 {
-  "version": "1.5.1",
-  "version_code": 151,
+  "version": "1.5.2",
+  "version_code": 152,
   "min_version_code": 100,
-  "updated_at": "2026-09-07 12:00",
-  "note": "전형요소를 요강에서 읽어 채움 (자리표시자 1,015 → 189)"
+  "updated_at": "2026-09-07 14:00",
+  "note": "모집인원 — 이름 정규화 매칭 · 총 모집인원 표시"
 }

@@ -690,6 +690,46 @@ def _track_criteria(tmethods, gyoinfo, cat):
     return method, gyogwa
 
 
+def _count_index(ucounts):
+    """모집인원 표의 학과 이름을 정규화해 색인한다.
+
+    표 이름에는 ★·공백·가운뎃점 종류가 제각각 붙어 있어서 글자 그대로
+    찾으면 대부분 놓친다. 원래 이름 > 정규화 이름 > 괄호 뗀 이름 순으로
+    담되, 먼저 담긴 것을 덮어쓰지 않는다(정확한 쪽을 우선).
+    """
+    idx = {}
+    for k, v in (ucounts or {}).items():
+        idx.setdefault(k, v)
+    for k, v in (ucounts or {}).items():
+        n = _norm_unit(k)
+        if n:
+            idx.setdefault(n, v)
+    for k, v in (ucounts or {}).items():
+        b = _base_unit(k)
+        if b:
+            idx.setdefault(b, v)
+    return idx
+
+
+def _count_total(ucounts, unit_name):
+    """요강 모집인원 표의 **총계**(전형 구분 없음). 없으면 None.
+
+    전형별 열이 없는 학과가 966개다. 총계를 '이 전형 정원' 으로 쓰면
+    과장이지만(중앙대 약학부 총계 20 · 지역균형 10), 총계라고 밝혀서
+    보여주면 학생이 규모를 가늠할 수 있다.
+    """
+    rec = (ucounts or {}).get(unit_name)
+    if rec is None:
+        for key in (_norm_unit(unit_name), _base_unit(unit_name)):
+            if key and key in ucounts:
+                rec = ucounts[key]
+                break
+    if not rec:
+        return None
+    t = rec.get("total")
+    return t if isinstance(t, int) else None
+
+
 def _count_for(ucounts, unit_name, cat, fallback, words=None):
     """이 학과의 **이 전형** 모집인원을 표 격자에서 찾는다.
 
@@ -701,6 +741,12 @@ def _count_for(ucounts, unit_name, cat, fallback, words=None):
     못 찾으면 fallback(기존 값)을 그대로 둔다 — **추측해서 채우지 않는다.**
     """
     rec = (ucounts or {}).get(unit_name)
+    if rec is None:
+        #  이름 그대로 없으면 정규화해서 다시 찾는다
+        for key in (_norm_unit(unit_name), _base_unit(unit_name)):
+            if key and key in ucounts:
+                rec = ucounts[key]
+                break
     if not rec:
         return fallback
     by = rec.get("by") or {}
@@ -718,7 +764,8 @@ def convert_auto(auto):
     idx = _rule_index(auto)
     cats = auto.get("categories_detected", []) or []
     # 표에서 읽은 모집인원 격자 {학과: {"total":n, "by":{전형머리글:n}}}
-    ucounts = auto.get("unit_counts") or {}
+    #  이름이 ★·공백·가운뎃점 때문에 안 맞는 일이 많아 정규화 색인을 쓴다
+    ucounts = _count_index(auto.get("unit_counts") or {})
     # 요강에서 읽은 전형방법(근거 쪽·원문 포함) / 반영교과
     tmethods = auto.get("track_methods") or {}
     gyoinfo = auto.get("gyogwa_info") or None
@@ -808,6 +855,8 @@ def convert_auto(auto):
                 "campus": base.get("campus"), "gyeyeol": gye,
                 "count": _count_for(ucounts, nm, cat, base["count"],
                                     words=(sub or {}).get("count_hdr")),
+                #  이 전형 정원을 못 찾았을 때 쓸 '표의 총계'(전형 구분 없음)
+                "count_total": _count_total(ucounts, nm),
                 "suneung_rule": rule,
                 "match": kind,
                 "unit_page": base["unit_page"],

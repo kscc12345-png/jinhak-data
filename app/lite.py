@@ -1509,7 +1509,12 @@ class Lite(ctk.CTk):
             ctk.CTkLabel(head, text=r["unit"], font=("Malgun Gothic", 22, "bold"), text_color=C["text"]
                          ).pack(anchor="w", padx=20, pady=(0, 4))
             info = f"{r.get('gyeyeol') or '-'}계열"
-            if r.get("count"): info += f"  ·  정원 {r['count']}명"
+            if r.get("count"):
+                info += f"  ·  정원 {r['count']}명"
+            elif r.get("count_total"):
+                #  전형별 인원을 요강에서 못 찾은 경우. 총계를 총계라고
+                #  밝혀서 보여준다 — 안 보여주면 규모를 가늠할 수 없다.
+                info += f"  ·  총 모집 {r['count_total']}명(전형별 미상)"
             if r.get("college"): info += f"  ·  {r['college']}"
             u_name = r.get("unit", "")
             if any(sym in u_name for sym in ["*", "†", "★", "◆", "※"]):
