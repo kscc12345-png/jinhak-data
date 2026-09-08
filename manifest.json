@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-08 14:28",
+  "generated": "2026-09-08 15:06",
   "version": "1.8.0",
   "version_code": 180,
   "min_version_code": 100,
@@ -29,7 +29,7 @@
       "code": "ajou",
       "name": "아주대학교",
       "year": 2027,
-      "units": 126
+      "units": 125
     },
     {
       "code": "cau",
@@ -119,7 +119,7 @@
       "code": "konkuk_glocal",
       "name": "건국대학교(글로컬)",
       "year": 2027,
-      "units": 111
+      "units": 112
     },
     {
       "code": "konyang",
