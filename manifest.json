@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-08 15:06",
+  "generated": "2026-09-08 15:36",
   "version": "1.8.0",
   "version_code": 180,
   "min_version_code": 100,
   "mobile_version": "1.1.0",
   "mobile_version_code": 2,
   "mobile_min_version_code": 1,
-  "app_version": "c3cfa715c07b",
+  "app_version": "9328f09c5439",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -29,7 +29,7 @@
       "code": "ajou",
       "name": "아주대학교",
       "year": 2027,
-      "units": 125
+      "units": 177
     },
     {
       "code": "cau",
@@ -47,7 +47,7 @@
       "code": "chungnam",
       "name": "충남대학교",
       "year": 2027,
-      "units": 298
+      "units": 364
     },
     {
       "code": "dankook",
@@ -59,7 +59,7 @@
       "code": "dongguk",
       "name": "동국대학교(서울)",
       "year": 2027,
-      "units": 254
+      "units": 238
     },
     {
       "code": "dongguk_wise",
@@ -77,7 +77,7 @@
       "code": "hanbat",
       "name": "국립한밭대학교",
       "year": 2027,
-      "units": 132
+      "units": 227
     },
     {
       "code": "hanyang",
@@ -89,7 +89,7 @@
       "code": "hufs",
       "name": "한국외국어대학교",
       "year": 2027,
-      "units": 317
+      "units": 358
     },
     {
       "code": "khu",
@@ -101,7 +101,7 @@
       "code": "knsu",
       "name": "한국체육대학교",
       "year": 2027,
-      "units": 27
+      "units": 21
     },
     {
       "code": "kongju",
@@ -113,19 +113,19 @@
       "code": "konkuk",
       "name": "건국대학교(서울)",
       "year": 2027,
-      "units": 284
+      "units": 318
     },
     {
       "code": "konkuk_glocal",
       "name": "건국대학교(글로컬)",
       "year": 2027,
-      "units": 112
+      "units": 127
     },
     {
       "code": "konyang",
       "name": "건양대학교",
       "year": 2027,
-      "units": 105
+      "units": 103
     },
     {
       "code": "korea",
@@ -161,7 +161,7 @@
       "code": "snu",
       "name": "서울대학교",
       "year": 2027,
-      "units": 206
+      "units": 328
     },
     {
       "code": "uos",
@@ -173,13 +173,13 @@
       "code": "woosong",
       "name": "우송대학교",
       "year": 2027,
-      "units": 186
+      "units": 220
     },
     {
       "code": "yonsei",
       "name": "연세대학교(서울)",
       "year": 2027,
-      "units": 207
+      "units": 257
     },
     {
       "code": "yonsei_mirae",

@@ -1325,6 +1325,13 @@ class Lite(ctk.CTk):
         self.search.pack(side="left"); self.search.bind("<KeyRelease>", lambda _=None: self._queue_recompute(120))
         self.only_ok = ctk.CTkCheckBox(inner, text="가능만", font=("Malgun Gothic", 12),
             command=self.recompute, fg_color=C["blue"]); self.only_ok.pack(side="right")
+        #  기회균형·고른기회·특수교육·재직자 전형은 해당하는 학생이
+        #  소수인데 목록을 채운다. 기본으로 접고, 필요한 학생이 펴 본다.
+        #  (자료에서 빼면 그 전형으로만 뽑는 학과가 사라진다)
+        self.show_narrow = ctk.CTkCheckBox(inner, text="특별전형 포함",
+            font=("Malgun Gothic", 12), command=self.recompute,
+            fg_color=C["purple"])
+        self.show_narrow.pack(side="right", padx=(0, 10))
 
     def _build_table(self, p):
         card = self._card(p); card.grid(row=3, column=0, sticky="nsew")
@@ -1537,6 +1544,10 @@ class Lite(ctk.CTk):
         kw = self.search.get().strip()
         if kw:
             res = [r for r in res if kw.lower() in (r["unit"] or "").lower()]
+        #  특별전형(기회균형·특수교육·재직자 등)은 기본으로 접는다
+        if not (getattr(self, "show_narrow", None)
+                and self.show_narrow.get()):
+            res = [r for r in res if not r.get("narrow")]
         vlist = []
         for r in res:
             v = engine.summarize(r)

@@ -408,6 +408,10 @@ def eval_unit(univ, track, unit, student):
         "rule_sentence": unit.get("rule_sentence"),
         #  한 전형 유형 안에서 최저가 갈릴 때의 안내
         "su_note": track.get("su_note"),
+        #  일반 학생과 무관한 전형(기회균형·특수교육·재직자 등).
+        #  자료에는 두고 화면에서 기본으로 접는다 — 버리면 그 전형으로만
+        #  뽑는 학과가 목록에서 사라진다.
+        "narrow": bool(track.get("narrow")),
         "rule_label": (rule or {}).get("label") if rule else None,
         "source_file": unit.get("source_file") or univ.get("source_file"),
         # 입결(합격컷)

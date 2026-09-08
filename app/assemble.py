@@ -551,6 +551,37 @@ def _rule_index(auto):
         if gye in ("인문", "자연"):
             c["by_gye"].setdefault(gye, info)
 
+    #  세부 전형별 색인 — 같은 유형 안에서 최저가 갈릴 때 쓴다.
+    #  서울대 종합은 지역균형 3합 7, 일반 미적용이다. 유형 색인만 쓰면
+    #  둘 중 하나가 전체에 붙는다.
+    for cat, c in idx.items():
+        c["by_track"] = {}
+    for row in ((auto.get("su_scope") or {}).get("scoped") or []):
+        cat, tr = row.get("category"), (row.get("track") or "").strip()
+        if not cat or not tr:
+            continue
+        c = ensure(cat)
+        sent = row.get("text") or row.get("sentence") or ""
+        info = {"rule": row["rule"], "page": row.get("page"), "src": "귀속",
+                "name": "", "search": sent, "gye": _sentence_gye(sent),
+                "sentence": sent, "track": tr}
+        if row.get("exclude_units"):
+            info["exclude"] = list(row["exclude_units"])
+        t = c["by_track"].setdefault(tr, {"by_name": {}, "by_gye": {},
+                                          "all": [], "common": None})
+        units = row.get("units") or []
+        if units:
+            info["name"] = units[0]
+            for nm in units:
+                t["by_name"].setdefault(_norm_unit(nm), info)
+        else:
+            t["all"].append(info)
+            if info["gye"] in ("인문", "자연"):
+                t["by_gye"].setdefault(info["gye"], info)
+    for cat, c in idx.items():
+        for tr, t in (c.get("by_track") or {}).items():
+            t["common"] = t["all"][0] if t["all"] else None
+
     # 전 전형 통합 색인(__ALL__): 최저가 특정 전형에만 잡혔을 때 교차 폴백용.
     # (많은 대학이 교과·종합에 동일 최저를 적용하나, 파서가 직전 전형헤더로만 분류함)
     allc = {"by_name": {}, "by_gye": {}, "all": []}
@@ -839,6 +870,148 @@ def _curated_pick(scopes, unit_name, college, campus=""):
     return None, None
 
 
+#  격자 머리글에 붙는 꼬리 — '#3' 같은 열 번호와 정원 구분
+_HDR_TAIL = re.compile(r"#\d+$")
+_HDR_NOISE = re.compile(r"수시\s*모집(?:인원)?|정원\s*내|정원\s*외|모집\s*인원"
+                        r"|\(정원\s*[내외]\)|전년\s*대비|명$|\d+$")
+
+
+def _hdr_name(h):
+    """격자 머리글을 화면에 쓸 전형 이름으로 다듬는다."""
+    t = _HDR_TAIL.sub("", str(h or "")).strip()
+    t = _HDR_NOISE.sub("", t).strip(" ()[]·-_")
+    return t
+
+
+#  일반 학생과 무관한 전형 — 나누면 모두의 목록만 길어진다.
+#  해당하는 학생은 소수이고, 유형에 묶여 있어도 최저·컷은 보인다.
+_SUB_NARROW = re.compile(
+    r"기회\s*균형|고른\s*기회|사회\s*통합|사회\s*기여|사회\s*공헌"
+    r"|특수\s*교육|장애|농어촌|만학도|재직자|특성화고|계약\s*학과"
+    r"|북한이탈|서해5도|지역\s*의사|국방|다문화|보훈|기초\s*생활"
+    r"|재외국민|외국인|편입|정원\s*외|취업자|평생\s*학습")
+
+
+def _auto_subtracks(auto, cat, ucounts):
+    """파서가 만드는 세부 전형. 사람이 적어 준 것이 없을 때 쓴다."""
+    subs = _subtracks_from_grid(cat, ucounts)
+    if not subs:
+        subs = _subtracks_from_sections(auto, cat)
+    return _tidy_subtracks(subs)
+
+
+def _tidy_subtracks(subs):
+    """겹친 이름을 합치고, 좁은 전형과 전형이 아닌 것을 뺀다."""
+    out, by_name = [], {}
+    for sb in subs or []:
+        nm = (sb.get("name") or "").strip()
+        if not nm:
+            continue
+        #  '학교추천, 학업우수' 는 최저가 걸리는 전형 둘을 적은 것이지
+        #  전형 이름이 아니다
+        if re.search(r"[,·/]", nm) and len(nm) > 6:
+            continue
+        #  좁은 전형은 **버리지 않고 적어 둔다.** 버리면 그 전형으로만
+        #  뽑는 학과가 목록에서 사라진다(아주대 종합 46 → 38).
+        #  화면에서 기본으로 접어 두면 모두의 목록은 깔끔해진다.
+        if _SUB_NARROW.search(nm):
+            sb = dict(sb)
+            sb["narrow"] = True
+        old = by_name.get(nm)
+        if old is None:
+            by_name[nm] = sb
+            out.append(sb)
+            continue
+        #  같은 이름은 하나로 — 격자 열이 정원내/정원외로 갈린 것이다
+        for key in ("count_hdr", "units"):
+            a, b = old.get(key) or [], sb.get(key) or []
+            if a or b:
+                old[key] = sorted(set(a) | set(b))
+    #  일반 전형이 둘 이상이어야 나눌 값이 있다. 좁은 전형만 여럿인
+    #  경우는 나누지 않는다 — 유형 하나로 두는 것이 낫다.
+    wide = [x for x in out if not x.get("narrow")]
+    return out if len(wide) >= 2 else []
+
+
+def _subtracks_from_grid(cat, ucounts):
+    """모집인원 표의 전형별 칸에서 세부 전형을 만든다.
+
+    이게 가장 확실하다 — 어느 학과를 뽑는지까지 숫자가 말해 준다.
+    0이면 그 전형으로는 안 뽑으므로 그 전형에 안 내놓는다.
+    """
+    hdr_units = {}
+    for nm, v in (ucounts or {}).items():
+        for h, n in ((v or {}).get("by") or {}).items():
+            try:
+                n = float(n)
+            except (TypeError, ValueError):
+                continue
+            if n > 0:
+                hdr_units.setdefault(h, []).append(nm)
+    out = []
+    for h in sorted(hdr_units):
+        nm = _hdr_name(h)
+        if not nm or len(nm) > 40:
+            continue
+        if _su_cat_like(nm) != cat:
+            continue
+        out.append({"name": nm, "count_hdr": [h],
+                    "units": sorted(hdr_units[h]), "src": "모집인원표"})
+    #  하나뿐이면 나눌 것이 없다
+    return out if len(out) >= 2 else []
+
+
+def _subtracks_from_sections(auto, cat):
+    """요강의 전형 절 제목에서 세부 전형을 만든다.
+
+    어느 학과를 뽑는지는 절 제목만으로 못 가린다(서울대는 모집단위표가
+    앞쪽에 통째로 있다). 그래서 학과는 전부 담고 **최저만** 절별로
+    갈라 붙인다 — 그게 유형으로 묶여 있던 것의 가장 큰 문제였다.
+    """
+    scope = auto.get("su_scope") or {}
+    #  최저가 갈리지 않으면 나눌 이유가 없다
+    trs = set()
+    for key in ("scoped", "none"):
+        for r in (scope.get(key) or []):
+            if r.get("category") == cat and not r.get("narrow"):
+                t = (r.get("track") or "").strip()
+                if t:
+                    trs.add(t)
+    if len(trs) < 2:
+        return []
+    out, seen = [], set()
+    for sec in (scope.get("sections") or []):
+        if sec.get("category") != cat:
+            continue
+        nm = (sec.get("track") or "").strip()
+        if not nm or nm in seen or nm not in trs:
+            continue
+        seen.add(nm)
+        out.append({"name": nm, "page": sec.get("page"), "src": "요강 절"})
+    #  최저 기준 줄의 이름은 전형 이름이 아닐 수 있다('학교추천,
+    #  학업우수' 는 그 최저가 걸리는 전형 둘을 적은 것이다). 전형은
+    #  절 제목과 모집인원표에서만 만든다.
+    return out if len(out) >= 2 else []
+
+
+def _su_cat_like(name):
+    """전형 이름 → 유형. autoparse._su_cat_of 와 같은 규칙."""
+    t = re.sub(r"\s+", "", name or "")
+    if re.search(r"정시|수능위주|수능/|수능100", t):
+        return "정시"
+    if re.search(r"학생부\(?교과|교과전형|교과성적|교과우수|교과정성"
+                 r"|고교추천|학교추천|교과일반|교과지역", t):
+        return "교과"
+    if re.search(r"학생부\(?종합|종합전형|학업우수|계열적합|활동우수"
+                 r"|자기추천|탐구형|융합형|성장형|서류형|면접형", t):
+        return "종합"
+    if re.search(r"논술", t):
+        return "논술"
+    if re.search(r"실기|실적|특기자", t):
+        return "실기"
+    return ""
+
+
 def _curated_subtracks(curated, cat):
     """이 전형유형이 세부 전형으로 나뉘는지 본다. 없으면 None.
 
@@ -863,7 +1036,8 @@ def _subtrack_takes(ent, unit_name, college):
     units/colleges 를 하나도 안 적으면 '전 모집단위' 로 본다. 적었으면
     거기 든 것만 — 뽑지 않는 학과에 그 전형 기준을 걸면 틀린 정보가 된다.
     """
-    if unit_name in (ent.get("exclude_units") or []):
+    ex = ent.get("exclude_units") or []
+    if unit_name in ex:
         return False
     us, cols = ent.get("units"), ent.get("colleges")
     if not us and not cols:
@@ -872,6 +1046,17 @@ def _subtrack_takes(ent, unit_name, college):
         return True
     if cols and college and college in cols:
         return True
+    #  표 이름에는 ★·가운뎃점이 붙어 있어서 글자 그대로 견주면
+    #  대부분 놓친다. 정규화해서 한 번 더 본다.
+    nk = _norm_unit(unit_name)
+    if nk:
+        if any(_norm_unit(e) == nk for e in ex):
+            return False
+        if us and any(_norm_unit(u) == nk for u in us):
+            return True
+        bk = _base_unit(unit_name)
+        if us and bk and any(_base_unit(u) == bk for u in us):
+            return True
     return False
 
 
@@ -1141,6 +1326,12 @@ def convert_auto(auto):
 
             # ── 세부 전형이 선언된 유형은 트랙을 나눠서 낸다 ──────────
             subs = _curated_subtracks(curated, cat)
+            #  사람이 적어 준 것이 없으면 파서가 만든 것을 쓴다
+            auto_sub = False
+            if not subs:
+                subs = _auto_subtracks(auto, cat,
+                                       auto.get("unit_counts") or {})
+                auto_sub = bool(subs)
             if subs:
                 cur_m, cur_g = _curated_criteria(curated, cat)
                 par_m, par_g = _track_criteria(tmethods, gyoinfo, cat)
@@ -1151,7 +1342,11 @@ def convert_auto(auto):
                                                      "사회", "과학"],
                                         "placeholder": True}
                 for i, sub in enumerate(subs):
-                    su = _build_units(cat, cat_idx, fb, sub=sub)
+                    #  이 세부 전형의 최저만 보는 색인이 있으면 그것을
+                    #  쓴다. 없으면 유형 공통 색인으로 물러난다.
+                    sidx = ((cat_idx or {}).get("by_track") or {}).get(
+                        sub.get("name")) or cat_idx
+                    su = _build_units(cat, sidx, fb, sub=sub)
                     if not su:
                         continue
                     #  전형요소·반영교과도 세부 전형마다 다를 수 있다
@@ -1165,6 +1360,10 @@ def convert_auto(auto):
                         "method": sub.get("method") or real_m or {},
                         "gyogwa": sub.get("gyogwa") or real_g,
                         "auto": True, "units": su,
+                        #  파서가 나눈 것인지 사람이 적어 준 것인지
+                        "sub_src": sub.get("src") if auto_sub else None,
+                        #  일반 학생과 무관한 전형 — 화면에서 접어 둔다
+                        "narrow": bool(sub.get("narrow")),
                     })
                 continue
 
@@ -1236,7 +1435,11 @@ def convert_auto(auto):
     #  평가 세부사항은 전형 유형별로 하나씩 붙인다.
     #  트랙을 만드는 자리가 네 군데라 여기서 한 번에 얹는다.
     #  한 유형 안에서 최저가 갈리면 그 사실을 트랙에 적어 둔다
+    #  나뉜 유형은 각 전형이 자기 최저를 갖는다 — 안내가 필요 없다.
+    _split = {t.get("category") for t in tracks if t.get("sub_src")}
     for _t in tracks:
+        if _t.get("category") in _split:
+            continue
         _n = _su_split_note(auto, _t.get("category"))
         if _n:
             _t["su_note"] = _n
