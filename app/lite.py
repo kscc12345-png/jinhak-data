@@ -16,7 +16,7 @@ BASE = os.path.dirname(APP)
 PUBLISHED = os.environ.get("JINHAK_DATA") or os.path.join(BASE, "published")
 PAGES = os.path.join(PUBLISHED, "pages")
 sys.path.insert(0, APP)
-import engine, features, meta
+import engine, features, meta, gradesheet
 
 C = {
     "bg": "#080c17", "card": "#111a2e", "card2": "#18233c", "muted": "#8a97b0",
@@ -42,6 +42,7 @@ ctk.set_default_color_theme("blue")
 # 보여줬다. 다른 학과의 기준을 이 학과에 적용해 판단할 수 있어서 밝힌다.
 MATCH_LABEL = {
     "요강확인": "요강을 직접 확인한 기준 (원문 첨부)",
+    "요강명시": "요강이 '이 전형은 최저 없음' 이라고 적은 것",
     "이름일치": "이 학과에 명시된 기준",
     "정밀구축": "이 학과에 명시된 기준 (검수 완료)",
     "단과일치": "같은 단과대학 기준을 적용 — 학과별 기준은 못 찾음",
@@ -519,20 +520,23 @@ class Lite(ctk.CTk):
                 if s.get("fixed") or sem in self._subj_sems(s)]
 
     def _ask_subject_kind(self):
-        """추가할 과목의 구분을 묻는다 — 일반 / 사회 / 과학.
+        """추가할 과목이 어느 **교과**인지 묻는다.
 
-        전에는 계열(자연·인문)로 갈라 놓았는데, 실제로는 사회와 과학을
-        섞어 듣는 학생이 많다. 그래서 계열과 무관하게 셋 다 고를 수 있게
-        하고, 무엇으로 넣을지 그때 묻는다.
+        전에는 계열(자연·인문)로 갈라 놓았고, 그 다음에는 일반·사회·
+        과학 셋뿐이었다. 대학 반영교과는 교과군 이름으로 적혀 있고
+        (`gyogwa.subject_area`) 우리는 학생이 고른 교과군을 과목명
+        추측보다 먼저 믿는다. 그래서 성적표에 적힌 교과를 그대로
+        고를 수 있게 열한 개를 다 편다.
         """
         win = self._top()
         win.title("과목 추가")
-        win.geometry("360x190")
+        win.geometry("430x300")
         win.configure(fg_color=C["bg"])
         win.resizable(False, False)
-        ctk.CTkLabel(win, text="어떤 과목을 추가할까요?",
+        ctk.CTkLabel(win, text="어떤 교과의 과목인가요?",
                      font=(FONT, 15, "bold"), text_color=C["text"]).pack(pady=(18, 4))
-        ctk.CTkLabel(win, text="반영교과를 가릴 때 씁니다 (계열과 무관합니다)",
+        ctk.CTkLabel(win, text="성적표에 적힌 교과를 고르세요 "
+                               "(계열과 무관합니다)",
                      font=(FONT, 11), text_color=C["muted"]).pack(pady=(0, 12))
         picked = {"v": None}
 
@@ -540,17 +544,19 @@ class Lite(ctk.CTk):
             picked["v"] = k
             win.destroy()
 
-        row = ctk.CTkFrame(win, fg_color="transparent")
-        row.pack(pady=4)
-        for label, kind, col in (("일반", "일반", "blue"),
-                                 ("사회", "사회", "orange"),
-                                 ("과학", "과학", "purple")):
-            ctk.CTkButton(row, text=label, width=90, height=34, font=(FONT, 13),
-                          fg_color=C[col], hover_color=C[col],
-                          command=lambda k=kind: pick(k)).pack(side="left", padx=6)
+        grid = ctk.CTkFrame(win, fg_color="transparent")
+        grid.pack(pady=4, padx=16, fill="x")
+        for i, (label, area) in enumerate(gradesheet.GYOGWA_CHOICES):
+            r, cc = divmod(i, 3)
+            grid.grid_columnconfigure(cc, weight=1)
+            ctk.CTkButton(grid, text=label, height=32, font=(FONT, 12),
+                          fg_color=C["card2"], hover_color=C["blue"],
+                          text_color=C["text"],
+                          command=lambda k=area: pick(k)
+                          ).grid(row=r, column=cc, sticky="ew", padx=4, pady=4)
         ctk.CTkButton(win, text="취소", width=90, height=28, font=(FONT, 11),
                       fg_color=C["card2"], hover_color=C["line"],
-                      text_color=C["text"], command=win.destroy).pack(pady=(10, 0))
+                      text_color=C["text"], command=win.destroy).pack(pady=(12, 0))
         win.grab_set()
         self.wait_window(win)
         return picked["v"]
@@ -735,6 +741,12 @@ class Lite(ctk.CTk):
         self.elec_frame = ctk.CTkFrame(c, fg_color="transparent")
         self.elec_frame.pack(fill="x", padx=16, pady=(2, 4))
         self._rebuild_electives()
+        #  등급을 어떻게 구했는지 알려 준다. '참고값' 이 많으면 성적표에
+        #  있는 값을 더 넣으라는 뜻이다.
+        self.grade_src_note = ctk.CTkLabel(c, text="", font=(FONT, 10),
+                                           wraplength=290, justify="left",
+                                           text_color=C["muted"])
+        self.grade_src_note.pack(anchor="w", padx=16, pady=(0, 2))
         ctk.CTkLabel(c, text="기본 학년 비중 (대학 자체 기준이 우선 적용됨)", font=(FONT, 11),
                      text_color=C["muted"]).pack(anchor="w", padx=16, pady=(6, 2))
         wrow = ctk.CTkFrame(c, fg_color="transparent"); wrow.pack(fill="x", padx=16, pady=(0, 10))
@@ -833,9 +845,13 @@ class Lite(ctk.CTk):
             "five": self.five_var.get(),
             "sem_active": getattr(self, "sem_active", {}),
             "year_active": getattr(self, "year_active", {}),
-            "weights": getattr(self.student, "weights", {}),
+            #  self.student 는 dict 다. getattr 로 꺼내면 늘 {} 였고
+            #  학년 비중·수능 등급이 저장되지 않았다.
+            "weights": self.student.get("weights", {}),
             "subjects": self.subjects,
-            "suneung": getattr(self.student, "suneung", {})
+            "suneung": self.student.get("suneung", {}),
+            "suneung_detail": self.student.get("suneung_detail", {}),
+            "tamgu": getattr(self, "tamgu", []),
         }
         data[key] = st_data
         with open(f, "w", encoding="utf-8") as file:
@@ -873,6 +889,11 @@ class Lite(ctk.CTk):
                     self.weight_entries[y].delete(0, "end")
                     self.weight_entries[y].insert(0, str(w))
             self.subjects = st.get("subjects", [])
+            if st.get("suneung_detail"):
+                self.student["suneung_detail"] = st["suneung_detail"]
+            if st.get("tamgu"):
+                self.tamgu = st["tamgu"]
+                self._rebuild_tamgu()
             for k, v in st.get("suneung", {}).items():
                 if k in getattr(self, "suneung_entries", {}):
                     self.suneung_entries[k].delete(0, "end")
@@ -987,9 +1008,31 @@ class Lite(ctk.CTk):
                       command=self._add_subject).pack(side="left")
         ctk.CTkLabel(add, text=f"  ({yr} 학기에만 추가됩니다)", font=(FONT, 10),
                      text_color=C["muted"]).pack(side="left")
+        #  서랍은 320px 다. 성적표의 과목평균·표준편차·수강자수·
+        #  성취도별 분포까지는 여기 안 들어간다 — 넓은 창에서 받는다.
+        sheet = ctk.CTkFrame(self.elec_frame, fg_color="transparent")
+        sheet.pack(fill="x", pady=(6, 2))
+        ctk.CTkButton(sheet, text="📋 성적표 그대로 입력", height=30,
+                      font=(FONT, 12), fg_color=C["purple"],
+                      hover_color=C["blue"],
+                      command=self._open_sheet).pack(fill="x")
+        ctk.CTkLabel(sheet, wraplength=290, justify="left", font=(FONT, 10),
+                     text_color=C["muted"],
+                     text="과목평균·표준편차·수강자수·성취도별 분포까지 "
+                          "넣으면 진로선택 과목의 등급을 훨씬 정확하게 "
+                          "추정합니다. 표를 통째로 붙여넣을 수도 있습니다."
+                     ).pack(anchor="w", pady=(4, 0))
 
         self._load_year_entries(yr)
         
+    def _open_sheet(self):
+        """성적표 그대로 입력 창을 연다(관리자·라이트 공용 모듈)."""
+        try:
+            gradesheet.open_sheet(self, C, FONT, SEMESTERS, engine)
+        except Exception as e:
+            self._toast("⚠ 입력 창을 열지 못했습니다: %s" % e, ms=8000)
+            raise
+
     def _add_subject(self, kind=None):
         """과목을 **이 학기에만** 더한다.
 
@@ -1328,7 +1371,9 @@ class Lite(ctk.CTk):
         
         naesin = {}
         auto_n = 0
+        grade_sources = {}
         for subj in self.subjects:
+            subj_sources = {}
             nm = (subj.get("name") or "").strip()
             if not nm:
                 #  이름을 아직 안 적었어도 **성적은 세어야 한다.** 예전에는
@@ -1351,29 +1396,37 @@ class Lite(ctk.CTk):
             subject_weight_sum = 0.0
             for y in yrs:
                 s1, s2 = f"{y}-1", f"{y}-2"
-                
+
                 def get_sem(sem):
+                    """그 학기 성적 → (등급, 이수단위, 어떻게 구했나).
+
+                    석차등급이 없으면 성취도별 비율 → 원점수 Z환산 →
+                    성취도 고정값 순으로 내려간다(`engine.subject_grade`).
+                    전에는 A를 무조건 1.5로 바꿔서, A를 70% 주는 과목과
+                    12% 주는 과목이 같은 값이었다.
+                    """
                     if not self.sem_active.get(sem, True):
-                        return None, 0
+                        return None, 0, None
                     #  예전 자료에는 없는 칸이 있다 — get 으로 읽는다
-                    g = (subj.get("grade") or {}).get(sem, "")
-                    a = (subj.get("ach") or {}).get(sem, "")
-                    r = (subj.get("raw") or {}).get(sem, "")
+                    rec = gradesheet.subject_record(subj, sem)
+                    score, why = engine.subject_grade(rec)
+                    #  5등급제 환산은 **석차등급에만** 건다. 나머지는
+                    #  백분위에서 9등급으로 바로 계산한 값이다.
+                    if score is not None and why == "seokcha":
+                        score = conv(score)
                     u = (subj.get("unit") or {}).get(sem, "")
-                    score = None
-                    if g:
-                        try: score = conv(float(g))
-                        except ValueError: pass
-                    if score is None and a in ["A", "B", "C"]:
-                        score = engine.convert_achievement(a)
                     u_val = 1
                     if u:
-                        try: u_val = int(u)
+                        try: u_val = int(float(u))
                         except ValueError: pass
-                    return score, u_val
+                    return score, u_val, why
 
-                score1, u1 = get_sem(s1)
-                score2, u2 = get_sem(s2)
+                score1, u1, why1 = get_sem(s1)
+                score2, u2, why2 = get_sem(s2)
+                for w in (why1, why2):
+                    if w:
+                        grade_sources[w] = grade_sources.get(w, 0) + 1
+                        subj_sources[w] = subj_sources.get(w, 0) + 1
                 
                 sem_sum = 0; sem_count = 0; sem_u = 0
                 if score1 is not None: sem_sum += score1; sem_count += 1; sem_u += u1
@@ -1389,9 +1442,20 @@ class Lite(ctk.CTk):
                     
             if valid_semesters > 0 and subject_weight_sum > 0:
                 weighted_avg = round(weighted_sum / subject_weight_sum, 2)
-                naesin[nm] = {"grade": weighted_avg, "units": total_units, "yearly_grades": yearly_grades, "raw_data": subj.get("raw") or {}, "ach_data": subj.get("ach") or {}, "kind": subj.get("kind")}
-            
+                naesin[nm] = {"grade": weighted_avg, "units": total_units,
+                              "yearly_grades": yearly_grades,
+                              "raw_data": subj.get("raw") or {},
+                              "ach_data": subj.get("ach") or {},
+                              "kind": subj.get("kind"),
+                              "type": subj.get("type"),
+                              #  이 과목의 등급을 어떻게 구했나 — 가장
+                              #  많이 쓴 방법 하나를 남긴다
+                              "grade_source": (max(subj_sources,
+                                                   key=subj_sources.get)
+                                               if subj_sources else None)}
+
         st["naesin"] = naesin
+        st["grade_sources"] = grade_sources
         su = dict(self.student["suneung"])
         for a, e in self.suneung_entries.items():
             try: su[a] = int(float(e.get()))
@@ -1416,6 +1480,26 @@ class Lite(ctk.CTk):
         st["categories"] = [] if cat == "전체" else [cat]
         return st
 
+    def _show_grade_sources(self, src):
+        """내신 등급을 어떤 방법으로 구했는지 한 줄로 알린다."""
+        lb = getattr(self, "grade_src_note", None)
+        if lb is None or not lb.winfo_exists():
+            return
+        if not src:
+            lb.configure(text="")
+            return
+        words = (("seokcha", "석차등급"), ("dist", "성취도 비율 환산"),
+                 ("zscore", "원점수 Z환산"), ("fixed", "성취도 참고값"))
+        parts = ["%s %d" % (w, src[k]) for k, w in words if src.get(k)]
+        txt = "등급 산출 — " + " · ".join(parts)
+        if src.get("fixed"):
+            txt += ("\n⚠ 참고값 %d칸은 성취도만 보고 잡은 값입니다. "
+                    "성적표 그대로 입력에서 A/B/C 비율이나 과목평균·"
+                    "표준편차를 넣으면 정확해집니다." % src["fixed"])
+            lb.configure(text=txt, text_color=C["orange"])
+        else:
+            lb.configure(text=txt, text_color=C["muted"])
+
     def recompute(self):
         """다시 계산하고 표를 채운다.
 
@@ -1432,6 +1516,7 @@ class Lite(ctk.CTk):
         if not self.univs:
             return
         st = self._collect_student()
+        self._show_grade_sources(st.get("grade_sources") or {})
         uv = self.univ_var.get()
         code = ([c for c, u in self.univs.items() if u["name"] == uv]
                 if uv != "전체 대학" else None)
@@ -1550,6 +1635,22 @@ class Lite(ctk.CTk):
             lb = MATCH_LABEL.get(mk, mk)
             rows.append(("최저 근거", ("⚠ " + lb) if mk in MATCH_CAUTION else lb))
 
+        #  어디가 컷이 **어느 전형의 것인지**. 요강이 없는 대학은 전형을
+        #  어디가 이름대로 나눠 담는다. 예전에는 한 학과의 전형 셋을
+        #  하나로 합치고 '일반' 컷을 대표로 썼다 — 서울대 사회복지학과가
+        #  2.36 으로 보였고, 지역균형은 1.30 이었다.
+        if x.get("ipgyeol_label"):
+            rows.append(("입결 전형", str(x["ipgyeol_label"])))
+        #  전형별로 컷이 갈리는데 어느 전형인지 못 가렸다. 가장 엄격한
+        #  것을 대표로 쓰고 있으니, 전형별 값을 다 보여 자기 전형을
+        #  찾게 한다.
+        ch = x.get("ipgyeol_choices")
+        if ch:
+            rows.append(("전형별 입결",
+                         " · ".join("%s %s등급" % (c.get("track"),
+                                                c.get("cut"))
+                                    for c in ch)))
+
         # 최저 기준의 원문 — 교차 점검용.
         # 요강을 읽어 채운 값은 반드시 원문·출처를 붙인다.
         rsent = x.get("rule_sentence")
@@ -1562,6 +1663,11 @@ class Lite(ctk.CTk):
                 rows.append(("└ 출처",
                              f"{rsrc} · (참고) 관리자 PDF {rpg}쪽" if rpg
                              else str(rsrc)))
+
+        #  한 유형 안에서 최저가 갈린다 — 어느 전형 기준인지 알려 준다.
+        #  (서울대 지역균형은 3합 7, 일반전형은 미적용이다)
+        if x.get("su_note"):
+            rows.append(("⚠ 전형별 최저", str(x["su_note"])))
 
         # 충족 여유 — '통과' 만으로는 얼마나 여유가 있는지 알 수 없다
         su = x.get("suneung") or {}
@@ -1655,8 +1761,26 @@ class Lite(ctk.CTk):
             scale = spec.get("scale")
             if isinstance(scale, dict) and scale:
                 keys = sorted(scale, key=lambda k: int(k) if str(k).isdigit() else 99)
-                txt = " / ".join(f"{k}등급 {scale[k]}" for k in keys[:5])
+                txt = " / ".join(f"{k}등급 {scale[k]:g}" for k in keys[:5])
                 rows.append(("등급환산", txt + (" …" if len(keys) > 5 else "")))
+                ssrc = spec.get("_scale_source") or {}
+                if ssrc.get("printed_page") or ssrc.get("section"):
+                    w = []
+                    if ssrc.get("section"):
+                        w.append(f"요강 「{ssrc['section']}」")
+                    if ssrc.get("printed_page"):
+                        w.append(f"{ssrc['printed_page']}쪽")
+                    rows.append(("└ 위치", " · ".join(w)))
+            #  진로선택 과목은 등급이 없고 성취도(A/B/C)만 나온다. 대학이
+            #  정한 환산값을 보여준다. **계산은 아직 고정 근사값을 쓴다** —
+            #  성취도를 점수로 바꾸는 자리가 대학별이 아니라 학생 입력
+            #  단계에 있어서, 그걸 옮기는 것은 내신 계산 전체를 건드린다.
+            ach = spec.get("ach_scale")
+            if isinstance(ach, dict) and ach:
+                rows.append(("진로선택 환산",
+                             " / ".join(f"{k} {ach[k]:g}점"
+                                        for k in sorted(ach))
+                             + "   (요강 공시값 · 계산에는 아직 반영 안 됨)"))
             sel = spec.get("selection_rules")
             if sel:
                 def _one(rr):

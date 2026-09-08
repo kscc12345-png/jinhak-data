@@ -14,6 +14,25 @@ engine.py — 학생 프로필 × 대학 데이터 → 전형별 평가 결과.
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import model, suneung, gyogwa, assemble, features
+from math import exp as _exp, sqrt as _sqrt
+
+_SQRT2 = _sqrt(2.0)
+
+
+def _erf(x):
+    """Abramowitz–Stegun 7.1.26 오차함수 근사 (|오차| < 1.5e-7).
+
+    math.erf 가 있는데 왜 이걸 쓰나 — Dart 쪽(engine.dart)에는 erf 가
+    없다. 두 엔진이 **같은 수를 내야** 대조 시험이 성립하므로 같은 식을
+    쓴다.
+    """
+    sign = -1.0 if x < 0 else 1.0
+    ax = abs(x)
+    a1, a2, a3 = 0.254829592, -0.284496736, 1.421413741
+    a4, a5, p = -1.453152027, 1.061405429, 0.3275911
+    t = 1.0 / (1.0 + p * ax)
+    y = 1.0 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * _exp(-ax * ax)
+    return sign * y
 
 # 5등급제(2025 고1~) → 9등급제 근사 환산(백분위 중앙값 기준). 참고용.
 _5TO9 = {1: 1.8, 2: 3.0, 3: 5.0, 4: 7.0, 5: 8.3}
@@ -26,6 +45,140 @@ def convert_achievement(level):
     if isinstance(level, str):
         return ACHIEVEMENT_TO_GRADE.get(level.upper(), 5.0)
     return level
+
+
+#  ── 등급 추정 사다리 ────────────────────────────────────────────
+#
+#  진로선택 과목에는 석차등급이 없다. 성취도(A/B/C)만 나온다.
+#  전에는 A를 무조건 1.5로 바꿨다 — A를 70% 주는 과목과 12% 주는
+#  과목의 A가 같은 값이었다. 성적표에 있는 것을 다 받으면 더 잘 잰다.
+#
+#      1. 석차등급이 있으면 그대로
+#      2. 성취도 + 성취도별 비율 → 그 구간의 가운데 백분위 → 등급
+#      3. 원점수 + 과목평균 + 표준편차 → Z점수 → 백분위 → 등급
+#      4. 아무것도 없으면 고정표(전과 같음)
+#
+#  어느 단계를 썼는지 함께 돌려준다. 학생에게 보여주기 위해서다.
+
+#  9등급 누적 구간의 **가운데** 백분위(상위 %). 등급은 이 점들 사이를
+#  직선으로 잇는다 — 평균을 낼 수 있게 소수를 돌려주기 위해서다.
+_GRADE_CENTER = [2.0, 7.5, 17.0, 31.5, 50.0, 68.5, 83.0, 92.5, 98.0]
+
+#  5등급제(2025 고1~) 누적 구간의 가운데
+_GRADE_CENTER5 = [5.0, 22.0, 50.0, 78.0, 95.0]
+
+GRADE_SOURCE_LABEL = {
+    "seokcha": "석차등급",
+    "dist": "성취도 비율 환산",
+    "zscore": "원점수 Z환산",
+    "fixed": "성취도 참고값",
+}
+GRADE_SOURCE_DETAIL = {
+    "seokcha": "성적표의 석차등급을 그대로 썼습니다.",
+    "dist": "성취도별 학생 비율로 이 성취도 구간의 가운데 백분위를 잡아 "
+            "등급으로 바꿨습니다. 같은 A라도 A를 적게 주는 과목이 좋게 "
+            "나옵니다.",
+    "zscore": "원점수·과목평균·표준편차로 Z점수를 내고 백분위로 바꿔 "
+              "등급을 추정했습니다. 성적이 정규분포라고 가정한 값입니다.",
+    "fixed": "성취도만 있어 고정 참고값(A 1.5 · B 3.5 · C 5.5)을 "
+             "썼습니다. 과목평균·표준편차나 성취도 비율을 넣으면 더 "
+             "정확해집니다.",
+}
+
+
+def grade_from_pct(pct, scale=9):
+    """상위 백분위(0~100, 작을수록 우수) → 등급(소수)."""
+    try:
+        p = float(pct)
+    except (TypeError, ValueError):
+        return None
+    cen = _GRADE_CENTER5 if scale == 5 else _GRADE_CENTER
+    if p <= cen[0]:
+        return 1.0
+    if p >= cen[-1]:
+        return float(len(cen))
+    for i in range(len(cen) - 1):
+        if p <= cen[i + 1]:
+            span = cen[i + 1] - cen[i]
+            return round(i + 1 + (p - cen[i]) / span, 3)
+    return float(len(cen))
+
+
+def pct_from_dist(ach, dist):
+    """성취도와 성취도별 비율(%) → 그 구간의 가운데 상위 백분위.
+
+    dist 는 {"A": 34.5, "B": 40.0, "C": 25.5} 처럼 준다. 순서대로 위에서
+    쌓아 그 성취도 구간의 가운데를 잡는다.
+    """
+    a = (ach or "").strip().upper()
+    if not a:
+        return None
+    order = [x for x in ("A", "B", "C", "D", "E") if x in (dist or {})]
+    #  한 칸만 적혀 있으면 비율이 아니다. A 비율만 주고 A를 물으면
+    #  '위에 아무도 없고 A가 전부' 가 되어 늘 상위 50% 로 나온다.
+    #  그건 값이 아니라 우연이다 — 없는 것으로 본다.
+    if len(order) < 2 or a not in order:
+        return None
+    vals = []
+    for k in order:
+        try:
+            v = float(str(dist[k]).replace("%", "").strip())
+        except (TypeError, ValueError):
+            return None
+        if v < 0:
+            return None
+        vals.append(v)
+    tot = sum(vals)
+    if tot <= 0:
+        return None
+    #  합이 100 이 아니어도(반올림·일부 누락) 비율로 정규화해 쓴다
+    above = 0.0
+    for k, v in zip(order, vals):
+        if k == a:
+            return round(100.0 * (above + v / 2.0) / tot, 3)
+        above += v
+    return None
+
+
+def _norm_cdf(z):
+    return 0.5 * (1.0 + _erf(z / _SQRT2))
+
+
+def pct_from_z(raw, mean, sd):
+    """원점수·과목평균·표준편차 → 상위 백분위(작을수록 우수)."""
+    try:
+        r, m, s = float(raw), float(mean), float(sd)
+    except (TypeError, ValueError):
+        return None
+    if s <= 0:
+        return None
+    z = (r - m) / s
+    if z > 4 or z < -4:
+        z = max(-4.0, min(4.0, z))
+    return round(100.0 * (1.0 - _norm_cdf(z)), 3)
+
+
+def subject_grade(rec, scale=9):
+    """과목 한 학기 성적 → (등급, 근거).
+
+    rec 은 {"grade","ach","raw","mean","sd","dist"} 중 있는 것만 준다.
+    """
+    g = rec.get("grade")
+    if g not in (None, ""):
+        try:
+            return float(g), "seokcha"
+        except (TypeError, ValueError):
+            pass
+    p = pct_from_dist(rec.get("ach"), rec.get("dist") or {})
+    if p is not None:
+        return grade_from_pct(p, scale), "dist"
+    p = pct_from_z(rec.get("raw"), rec.get("mean"), rec.get("sd"))
+    if p is not None:
+        return grade_from_pct(p, scale), "zscore"
+    a = (rec.get("ach") or "").strip().upper()
+    if a in ACHIEVEMENT_TO_GRADE:
+        return ACHIEVEMENT_TO_GRADE[a], "fixed"
+    return None, None
 
 
 def convert_5to9(g):
@@ -253,9 +406,18 @@ def eval_unit(univ, track, unit, student):
         "rule_page": unit.get("rule_page"),
         "rule_src": unit.get("rule_src"),
         "rule_sentence": unit.get("rule_sentence"),
+        #  한 전형 유형 안에서 최저가 갈릴 때의 안내
+        "su_note": track.get("su_note"),
         "rule_label": (rule or {}).get("label") if rule else None,
         "source_file": unit.get("source_file") or univ.get("source_file"),
         # 입결(합격컷)
+        #  이 컷이 어느 전형의 것인가 — 요강이 없는 대학은 전형을
+        #  어디가 이름대로 나눠 담으므로 하나씩이다
+        "ipgyeol_label": unit.get("ipgyeol_label"),
+        #  전형별 컷이 갈리는데 어느 전형인지 못 가린 경우 — 전형별
+        #  목록을 함께 준다. 한 숫자만 보여주면 학생은 그게 자기
+        #  전형의 컷이라고 읽는다.
+        "ipgyeol_choices": unit.get("ipgyeol_choices"),
         "ipgyeol_naesin": unit.get("ipgyeol_naesin"),
         "ipgyeol_low": unit.get("ipgyeol_low"),
         "ipgyeol_type": unit.get("ipgyeol_type"),

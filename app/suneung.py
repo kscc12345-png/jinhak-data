@@ -139,7 +139,23 @@ def evaluate(rule, student):
         if g is not None:
             grades[a] = g
 
-    required = rule.get("required", [])
+    #  ── 필수 영역 ──────────────────────────────────────────────
+    #
+    #  pool 밖의 '필수' 는 **응시 필수**를 뜻한다. 합에 못 들어가는
+    #  영역을 '반영 영역 중 반드시 포함' 으로 읽을 수는 없다.
+    #
+    #  배재대 간호학과 기준이 '국/수/영/탐(1) 중 2개 영역 합 10
+    #  [한국사 필수]' 다. 한국사는 합에 안 들어가므로 pool 에 없는데
+    #  required 에 들어 있었다. grades 는 pool 성적만 모으므로 곧바로
+    #  unknown 이 됐다 — 한국사 3등급인 학생도 '판정보류' 였다.
+    #  학생 화면에서 판정보류는 '성적 부족' 과 구분이 안 된다.
+    required = [r for r in rule.get("required", []) if r in pool]
+    for req in rule.get("required", []):
+        if req in pool:
+            continue
+        if _area_grade(student, req, rule) is None:
+            return {"status": "unknown", "margin": None, "label": label,
+                    "detail": f"'{req}' 성적이 없습니다 (요강은 응시 필수)"}
     for req in required:
         if req not in grades:
             return {"status": "unknown", "margin": None, "label": label,

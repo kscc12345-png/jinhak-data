@@ -8,7 +8,7 @@ assemble.py — 데이터 소스 통합.
 이로써 정제본이 없는 대학도 '수능최저 판정 + 학과 목록'은 자동 제공된다.
 교과 환산표는 자동 추출이 어려워, 자동 변환분은 gyogwa=null(최저만 판정).
 """
-import os, sys, json, glob
+import os, sys, json, glob, re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import meta
 
@@ -182,20 +182,55 @@ def _find_eodiga_recs(ed, unit_name):
 _CAT_OF_TRACK = {"학생부교과": "교과", "학생부종합": "종합"}
 
 
-def _eodiga_unit(nm, recs, yr):
+def _eodiga_unit(nm, recs, yr, track_name=""):
     """어디가 결과만으로 학과 unit 구성(대표 70%컷 포함)."""
-    pool = [r for r in recs if r.get("grade70") is not None]
-    gen = [r for r in pool if "일반" in (r.get("label") or "")]
-    best = (gen or pool or recs)[0]
+    best, _matched = _pick_eodiga(recs, track_name)
+    if best is None:
+        best = recs[0] if recs else {}
     return {
         "unit": nm, "college": None, "gyeyeol": _guess_gyeyeol(nm, ""),
         "count": None, "match": "어디가",
         "suneung_rule": {"type": "none", "label": "수능최저 정보 없음(어디가 결과 기준)"},
         "source_file": None, "eodiga": recs, "eodiga_year": yr,
         "ipgyeol_naesin": best.get("grade70"), "ipgyeol_low": None,
-        "ipgyeol_type": f"어디가 70%컷·환산등급({yr or ''})" if best.get("grade70") else None,
+        "ipgyeol_type": (f"어디가 70%컷·환산등급({yr or ''})"
+                         if best.get("grade70") else None),
+        #  이 컷이 어느 전형의 것인지 — 전형을 나눠 담으면 하나씩이다
+        "ipgyeol_label": _eodiga_label(best.get("label"), ""),
         "eodiga_score70": best.get("score70"), "eodiga_comp": best.get("competition"),
     }
+
+
+def _eodiga_label(label, cat):
+    """어디가 전형 이름 → 화면에 쓸 전형 이름."""
+    s = re.sub(r"\s+", " ", label or "").strip()
+    s = s.replace("수시모집", "").replace("정시모집", "")
+    s = re.sub(r"[_]+", "·", s)
+    s = re.sub(r"\(\s*\)", "", s).strip()
+    return s or (cat + "전형")
+
+
+def _split_eodiga_tracks(univ, cat, unit_recs, yr):
+    """어디가 전형 이름마다 전형을 하나씩 만든다.
+
+    요강이 없는 대학에만 쓴다. 요강이 있으면 그 전형 구성이 옳고,
+    어디가에만 있는 학과는 거기 얹으면 된다.
+    """
+    by_label = {}
+    for nm, recs in unit_recs.items():
+        for r in recs:
+            lb = _eodiga_label(r.get("label"), cat)
+            by_label.setdefault(lb, {}).setdefault(nm, []).append(r)
+    for lb in sorted(by_label):
+        slug = re.sub(r"[^0-9A-Za-z가-힣]", "", lb)[:24]
+        tr = {"id": "eodiga_%s_%s" % (cat, slug), "name": lb,
+              "category": cat, "admission_type": "수시", "method": {},
+              "gyogwa": None, "auto": True, "eodiga_only": True,
+              "units": []}
+        for nm in sorted(by_label[lb]):
+            tr["units"].append(_eodiga_unit(nm, by_label[lb][nm], yr, lb))
+        if tr["units"]:
+            univ.setdefault("tracks", []).append(tr)
 
 
 def _merge_eodiga_units(univ, ed, yr):
@@ -216,6 +251,12 @@ def _merge_eodiga_units(univ, ed, yr):
                 by.setdefault(cat, {}).setdefault(nm, []).append(r)
     for cat, unit_recs in by.items():
         tr = track_by_cat.get(cat)
+        if tr is None:
+            #  요강이 없는 대학(서울대)은 어디가 전형 이름대로 나눈다.
+            #  한 학과에 전형이 셋이면 입결도 셋이다. 하나로 합치면
+            #  느슨한 쪽이 대표값이 되어 학생이 '적정' 으로 읽는다.
+            _split_eodiga_tracks(univ, cat, unit_recs, yr)
+            continue
         for nm, recs in unit_recs.items():
             k_norm = _norm_unit(nm)
             k_base = _base_unit(nm)
@@ -227,9 +268,54 @@ def _merge_eodiga_units(univ, ed, yr):
                       "auto": True, "units": []}
                 univ.setdefault("tracks", []).append(tr)
                 track_by_cat[cat] = tr
-            tr["units"].append(_eodiga_unit(nm, recs, yr))
+            tr["units"].append(_eodiga_unit(nm, recs, yr, tr.get("name") or ""))
             have.setdefault(cat, set()).add(k_norm)
             have.setdefault(cat, set()).add(k_base)
+
+
+#  전형 이름을 가르는 낱말 — 어디가 이름과 요강 전형 이름을 잇는다.
+#  '일반' 은 맨 뒤에 둔다. 거의 모든 대학에 있어서 가리는 힘이 약하다.
+_TRACK_KEYS = [
+    "지역균형", "고교추천", "학교장추천", "교과우수", "학생부우수",
+    "지역인재", "기회균형", "고른기회", "사회통합", "사회기여", "사회공헌",
+    "특성화고", "농어촌", "만학도", "재직자", "특기자", "실기", "실적",
+    "논술", "면접형", "서류형", "활동우수", "탐구형", "융합형", "성장형",
+    "어울림", "자기추천", "네오르네상스", "다빈치", "탐구", "추천",
+    "일반",
+]
+
+
+def _label_keys(s):
+    import re as _re
+    t = _re.sub(r"\s+", "", s or "")
+    return {k for k in _TRACK_KEYS if k in t}
+
+
+def _pick_eodiga(recs, track_name):
+    """이 전형의 70%컷 기록을 고른다.
+
+    반환: (기록, 전형까지 맞췄나)
+    """
+    pool = [r for r in recs if r.get("grade70") is not None]
+    if not pool:
+        return None, False
+    want = _label_keys(track_name)
+    if want:
+        scored = []
+        for r in pool:
+            got = _label_keys(r.get("label"))
+            n = len(want & got)
+            if n:
+                #  겹치는 낱말이 많고, 엇갈리는 낱말이 적은 쪽
+                scored.append((n, -len(got ^ want), r))
+        if scored:
+            scored.sort(key=lambda x: (-x[0], -x[1]))
+            return scored[0][2], True
+    #  전형을 못 가렸다. 여기서 '일반' 을 고르면 거의 늘 가장 느슨한
+    #  컷이 잡힌다 — 학생이 못 갈 곳을 갈 수 있다고 읽는다.
+    #  가장 엄격한 것을 쓴다. 범위는 부르는 쪽이 함께 내보낸다.
+    pool.sort(key=lambda r: r.get("grade70"))
+    return pool[0], False
 
 
 def _apply_eodiga(univ, ed):
@@ -254,15 +340,31 @@ def _apply_eodiga(univ, ed):
                             break
                         except (ValueError, TypeError):
                             pass
-            # 대표 70%컷: 같은 전형의 '일반전형' 우선, 없으면 최소 등급70
-            pool = [r for r in (same or recs) if r.get("grade70") is not None]
-            if not pool:
+            # 대표 70%컷 — **이 전형의 것**을 고른다(_pick_eodiga 주석)
+            best, matched = _pick_eodiga(same or recs, t.get("name") or "")
+            if best is None:
                 continue
-            gen = [r for r in pool if "일반" in (r.get("label") or "")]
-            best = (gen or pool)[0]
             u["ipgyeol_naesin"] = best.get("grade70")
             u["ipgyeol_low"] = None
-            u["ipgyeol_type"] = f"어디가 70%컷·환산등급({yr or ''})"
+            #  어느 전형의 컷인지 화면에 적는다. 못 맞췄을 때 특히 중요하다.
+            u["ipgyeol_label"] = _eodiga_label(best.get("label"), "")
+            if matched:
+                u["ipgyeol_type"] = f"어디가 70%컷·환산등급({yr or ''})"
+            else:
+                #  전형별 컷이 갈리는데 어느 것인지 못 가렸다. 가장
+                #  엄격한 것을 쓰고 범위를 함께 준다 — 학생이 하나의
+                #  숫자가 아님을 알아야 한다.
+                cand = sorted(
+                    ((r.get("grade70"), _eodiga_label(r.get("label"), ""))
+                     for r in (same or recs) if r.get("grade70") is not None),
+                    key=lambda x: x[0])
+                u["ipgyeol_type"] = (
+                    f"어디가 70%컷·환산등급({yr or ''}) · "
+                    "전형이 여럿이라 가장 엄격한 것")
+                if len(cand) > 1:
+                    u["ipgyeol_choices"] = [
+                        {"track": lb, "cut": g} for g, lb in cand]
+                    u["ipgyeol_range"] = [cand[0][0], cand[-1][0]]
             u["eodiga_score70"] = best.get("score70")
             u["eodiga_comp"] = best.get("competition")
     # 어디가에만 있는 학과 추가(모집요강 부실 대학 대응)
@@ -306,30 +408,34 @@ def _univ_from_eodiga(ed):
             by_track.setdefault(r.get("track"), {}).setdefault(nm, []).append(r)
     tmap = {"학생부교과": "교과", "학생부종합": "종합"}
     tracks = []
+    #  ── 전형 이름대로 나눈다 ────────────────────────────────────
+    #
+    #  서울대 사회복지학과의 어디가 기록은 셋이다.
+    #
+    #      학생부종합전형(지역균형전형)          70%컷 1.30
+    #      학생부종합전형(일반전형)              70%컷 2.36
+    #      학생부종합전형(기회균형·사회통합)       컷 없음
+    #
+    #  하나로 합치면 '일반' 이 대표값이 되어 2.36 이 된다. 내신 2.0 인
+    #  학생이 서울대를 '적정' 으로 읽는다 — 지역균형은 1.30 이다.
+    #  틀린 방향이 위험한 쪽이므로 전형을 나눠 각자의 컷을 붙인다.
     for tk, unit_recs in by_track.items():
         cat = tmap.get(tk, "종합")
-        units = []
+        by_label = {}
         for nm, recs in unit_recs.items():
-            pool = [r for r in recs if r.get("grade70") is not None]
-            gen = [r for r in pool if "일반" in (r.get("label") or "")]
-            best = (gen or pool or recs)[0]
-            units.append({
-                "unit": nm, "college": None, "gyeyeol": _guess_gyeyeol(nm, ""),
-                "count": None, "match": "어디가",
-                "suneung_rule": {"type": "none",
-                                 "label": "수능최저 정보 없음(어디가 결과 기준)"},
-                "source_file": None,
-                "eodiga": recs, "eodiga_year": yr,
-                "ipgyeol_naesin": best.get("grade70"),
-                "ipgyeol_low": None,
-                "ipgyeol_type": f"어디가 70%컷·환산등급({yr or ''})" if best.get("grade70") else None,
-                "eodiga_score70": best.get("score70"),
-                "eodiga_comp": best.get("competition"),
-            })
-        if units:
-            tracks.append({"id": f"eodiga_{cat}", "name": f"{cat}전형",
+            for r in recs:
+                lb = _eodiga_label(r.get("label"), cat)
+                by_label.setdefault(lb, {}).setdefault(nm, []).append(r)
+        for lb in sorted(by_label):
+            units = [_eodiga_unit(nm, by_label[lb][nm], yr, lb)
+                     for nm in sorted(by_label[lb])]
+            if not units:
+                continue
+            slug = re.sub(r"[^0-9A-Za-z가-힣]", "", lb)[:24]
+            tracks.append({"id": f"eodiga_{cat}_{slug}", "name": lb,
                            "category": cat, "admission_type": "수시",
-                           "method": {}, "gyogwa": None, "auto": True, "units": units})
+                           "method": {}, "gyogwa": None, "auto": True,
+                           "eodiga_only": True, "units": units})
     jt = _jeongsi_track(ed.get("jeongsi") or {}, yr)
     if jt:
         tracks.append(jt)
@@ -417,6 +523,34 @@ def _rule_index(auto):
         c["all"].append(info)
         if gye in ("인문", "자연"):
             c["by_gye"].setdefault(gye, info)
+    #  전형 귀속까지 붙은 규칙(harvest_su_scope) — 문장의 **자리** 위에서
+    #  전형 이름을 찾아 붙인 것이라 category 를 믿을 수 있다. 위의
+    #  suneung_text 는 category 가 비어 '기타' 로 뭉쳐 있었다.
+    for row in ((auto.get("su_scope") or {}).get("scoped") or []):
+        if row.get("narrow") or not row.get("category"):
+            continue          # 재직자·기회균형 등은 대표값으로 쓰면 안 된다
+        c = ensure(row["category"])
+        sent = row.get("text") or row.get("sentence") or ""
+        gye = _sentence_gye(sent)
+        info = {"rule": row["rule"], "page": row.get("page"), "src": "귀속",
+                "name": "", "search": sent, "gye": gye, "sentence": sent,
+                "track": row.get("track", "")}
+        #  요강이 '어느 모집단위' 인지 적어 놨으면 그대로 지킨다.
+        #  서울대 일반전형은 미술대학 디자인과만 최저가 있다.
+        if row.get("exclude_units"):
+            info["exclude"] = list(row["exclude_units"])
+        units = row.get("units") or []
+        if units:
+            info["name"] = units[0]
+            info["units"] = list(units)
+            for nm in units:
+                c["by_name"].setdefault(_norm_unit(nm), info)
+            #  이름이 박힌 규칙은 다른 학과로 새 나가면 안 된다
+            continue
+        c["all"].append(info)
+        if gye in ("인문", "자연"):
+            c["by_gye"].setdefault(gye, info)
+
     # 전 전형 통합 색인(__ALL__): 최저가 특정 전형에만 잡혔을 때 교차 폴백용.
     # (많은 대학이 교과·종합에 동일 최저를 적용하나, 파서가 직전 전형헤더로만 분류함)
     allc = {"by_name": {}, "by_gye": {}, "all": []}
@@ -444,6 +578,87 @@ _SPECIAL = [
 ]
 
 
+def _su_none_cats(auto):
+    """요강이 '최저 없음' 이라고 적은 전형들 — 유형별로 모아 둔다.
+
+    사람이 손으로 적어 온 수능최저 90건 중 40건이 이것이었다. '없음' 도
+    학생에게는 정보다 — 최저를 못 맞춰도 쓸 수 있는 전형이 어디인지가
+    그것이다.
+
+    그런데 **주장하지 않고 근거로 붙인다.** 요강의 '없음' 은 세부 전형
+    단위로 적혀 있는데(충북대 종합Ⅰ·SW는 미적용, 종합Ⅱ는 2개합 8),
+    우리가 만드는 자동 전형은 유형 하나뿐이다. '종합은 없음' 이라고
+    적으면 종합Ⅱ 지원자에게 거짓이 된다.
+
+    판정은 어차피 안 바뀐다 — `suneung.evaluate` 는 type=none 이면 못
+    찾았을 때도 'na'(미적용)를 돌려준다. 바뀌는 것은 라벨뿐이다.
+
+    반환: {유형: [{track, page, text, src}…]}
+    """
+    scope = auto.get("su_scope") or {}
+    out = {}
+    for row in (scope.get("none") or []):
+        if row.get("narrow"):
+            continue
+        cat = row.get("category")
+        if cat:
+            out.setdefault(cat, []).append(row)
+    return out
+
+
+def _su_split_note(auto, cat):
+    """이 전형 유형 안에서 최저가 갈리는가. 갈리면 한 줄로 적는다.
+
+    요강은 세부 전형마다 최저를 따로 적는다. 우리 자동 전형은 유형
+    하나뿐이라 그중 하나가 유형 전체에 붙는다. 어느 전형 기준인지,
+    어느 전형은 미적용인지 학생이 알아야 한다.
+    """
+    scope = auto.get("su_scope") or {}
+    have, none = [], []
+    for r in (scope.get("scoped") or []):
+        if r.get("category") != cat or r.get("narrow"):
+            continue
+        p = r.get("printed_page") or r.get("page")
+        t = (r.get("track") or "").strip()
+        if t and (t, p) not in have:
+            have.append((t, p))
+    for r in (scope.get("none") or []):
+        if r.get("category") != cat or r.get("narrow"):
+            continue
+        p = r.get("printed_page") or r.get("page")
+        t = (r.get("track") or "").strip()
+        if t and (t, p) not in none:
+            none.append((t, p))
+    #  한쪽만 있으면 갈리는 게 아니다
+    if not have or not none:
+        return None
+
+    def fmt(xs):
+        return " · ".join("«%s»(%s쪽)" % (t, p) for t, p in xs[:3])
+
+    return ("요강은 세부 전형마다 최저를 따로 적었습니다 — %s 은 기준이 "
+            "있고 %s 은 미적용입니다. 이 화면은 전형 유형(%s)으로 묶여 "
+            "있어 기준이 있는 쪽을 보여줍니다. 지원할 전형을 요강에서 "
+            "확인하세요." % (fmt(have), fmt(none), cat))
+
+
+def _su_none_label(rows):
+    """'없음' 근거를 한 줄로. 어느 전형인지·몇 쪽인지를 남긴다."""
+    names, pages = [], []
+    for r in rows[:4]:
+        t = (r.get("track") or "").strip()
+        if t and t not in names:
+            names.append(t)
+        p = r.get("printed_page") or r.get("page")
+        if p and p not in pages:
+            pages.append(p)
+    who = " · ".join("«%s»" % n for n in names) if names else "일부 전형"
+    where = ("요강 %s쪽" % "·".join(str(p) for p in pages[:3])) if pages else "요강"
+    return ("%s 은 수능최저 미적용이라고 %s에 적혀 있습니다. "
+            "같은 유형 안에서도 세부 전형·학과에 따라 다를 수 있습니다 — "
+            "요강을 확인하세요." % (who, where))
+
+
 def _match_one(cat_idx, unit_name, gye, college, tag="", allow_gye=True):
     """단일 색인에서 매칭 시도. (info, kind) 또는 (None,None).
     allow_gye=False면 계열추정(광범위) 제외 — 타전형 폴백 시 오적용 방지."""
@@ -451,6 +666,14 @@ def _match_one(cat_idx, unit_name, gye, college, tag="", allow_gye=True):
         return None, None
     if unit_name in cat_idx["by_name"]:
         return cat_idx["by_name"][unit_name], "이름일치" + tag
+    #  요강이 적은 이름과 학과 목록의 표기가 조금 다를 수 있다
+    #  ('미술대학 디자인과' ↔ '디자인과')
+    _nk = _norm_unit(unit_name)
+    if _nk and _nk in cat_idx["by_name"]:
+        return cat_idx["by_name"][_nk], "이름일치" + tag
+    for _k, _v in cat_idx["by_name"].items():
+        if _nk and len(_nk) >= 3 and (_nk in _k or _k in _nk):
+            return _v, "이름일치" + tag
     allrules = cat_idx.get("all", [])
 
     def _txt(info):
@@ -470,21 +693,35 @@ def _match_one(cat_idx, unit_name, gye, college, tag="", allow_gye=True):
     return None, None
 
 
+def _excluded(info, unit_name):
+    """이 규칙이 이 학과를 **뺀다고** 적혀 있는가."""
+    ex = (info or {}).get("exclude") or []
+    if not ex:
+        return False
+    nk = _norm_unit(unit_name)
+    for e in ex:
+        ek = _norm_unit(e)
+        if ek and nk and (ek in nk or nk in ek):
+            return True
+    return False
+
+
 def _match_rule(cat_idx, unit_name, gye, college="", all_idx=None):
     """학과에 최저 규칙 매칭. 반환: (info, match_kind)
     우선순위: 이름일치 > 의약/특수 단과일치 > 단과일치 > 계열추정 > (타전형 폴백) > 전형공통"""
     if not cat_idx and not all_idx:
         return None, "미확인"
     info, kind = _match_one(cat_idx, unit_name, gye, college)
-    if info:
+    if info and not _excluded(info, unit_name):
         return info, kind
     # 이 전형에 최저가 없거나 못 찾음 → 전 전형 통합 색인에서 폴백(교과↔종합 동일 최저 흔함)
     if all_idx:
         info, kind = _match_one(all_idx, unit_name, gye, college,
                                 tag="(타전형)", allow_gye=False)
-        if info:
+        if info and not _excluded(info, unit_name):
             return info, kind
-    if cat_idx and cat_idx.get("common"):
+    if cat_idx and cat_idx.get("common") \
+            and not _excluded(cat_idx["common"], unit_name):
         return cat_idx["common"], "전형공통"
     return None, "미확인"
 
@@ -770,6 +1007,7 @@ def convert_auto(auto):
     """auto 추출 JSON → 엔진 호환 대학 dict (학과 중심)."""
     src_file = auto.get("file")
     idx = _rule_index(auto)
+    su_none = _su_none_cats(auto)
     cats = auto.get("categories_detected", []) or []
     # 표에서 읽은 모집인원 격자 {학과: {"total":n, "by":{전형머리글:n}}}
     #  이름이 ★·공백·가운뎃점 때문에 안 맞는 일이 많아 정규화 색인을 쓴다
@@ -843,6 +1081,16 @@ def convert_auto(auto):
             rpage = info["page"] if info else None
             rsrc = info["src"] if info else None
             rsent = info.get("sentence") if info else None
+            #  요강이 '최저 없음' 이라고 적은 것이 있으면 **근거로** 붙인다.
+            #  주장하지 않는 이유는 `_su_none_cats` 주석에 있다. 규칙을
+            #  못 찾았을 때만 바꾼다 — 찾은 규칙은 건드리지 않는다.
+            nrows = su_none.get(cat)
+            if nrows and info is None:
+                rule = {"type": "none", "label": _su_none_label(nrows)}
+                kind = "요강근거"
+                rpage = nrows[0].get("page")
+                rsrc = "요강 " + (nrows[0].get("src") or "")
+                rsent = nrows[0].get("text")
             # 읽어서 채운 최저가 있으면 그것이 최우선(원문 첨부 필수).
             # 세부 전형이면 **그 전형의 규칙만** 본다 — 다른 세부 전형의
             # 기준을 끌어오면 애초에 나눈 이유가 없어진다.
@@ -857,12 +1105,18 @@ def convert_auto(auto):
                 rpage = csrc.get("page")
                 rsrc = "요강 직접확인"
                 rsent = csrc.get("text")
+            #  0명 모집은 지원할 수 없다. 보여주면 학생이 헛되게 검토한다.
+            #  (아주대 스포츠레저학과 — 수시는 안 뽑고 실기로만 뽑는다.
+            #   5,480 학과 중 2건이라 좁게 걸러도 잃는 게 없다)
+            _cnt = _count_for(ucounts, nm, cat, base["count"],
+                              words=(sub or {}).get("count_hdr"))
+            if isinstance(_cnt, (int, float)) and _cnt <= 0:
+                continue
             ipinfo = ipg.get(nm)
             out.append({
                 "unit": nm, "college": base["college"],
                 "campus": base.get("campus"), "gyeyeol": gye,
-                "count": _count_for(ucounts, nm, cat, base["count"],
-                                    words=(sub or {}).get("count_hdr")),
+                "count": _cnt,
                 #  이 전형 정원을 못 찾았을 때 쓸 '표의 총계'(전형 구분 없음)
                 "count_total": _count_total(ucounts, nm),
                 "suneung_rule": rule,
@@ -981,6 +1235,12 @@ def convert_auto(auto):
 
     #  평가 세부사항은 전형 유형별로 하나씩 붙인다.
     #  트랙을 만드는 자리가 네 군데라 여기서 한 번에 얹는다.
+    #  한 유형 안에서 최저가 갈리면 그 사실을 트랙에 적어 둔다
+    for _t in tracks:
+        _n = _su_split_note(auto, _t.get("category"))
+        if _n:
+            _t["su_note"] = _n
+
     evals = auto.get("evaluation") or {}
     ties = auto.get("tiebreak") or {}
     #  학교폭력 반영과 면접 안내는 대학 공통이라 모든 전형에 같이 붙인다.
@@ -999,6 +1259,41 @@ def convert_auto(auto):
                 tr["violence"] = vio
             if itv:
                 tr["interview"] = itv
+    #  등급환산표·성취도 환산 — 내신 계산의 근간이다.
+    #
+    #  **반영교과가 실제값일 때만 계산에 넣는다.** 반영교과가 자리표시자인데
+    #  환산표만 붙이면, 엔진이 '대학 반영기준으로 계산했다' 는 판정을 내면서
+    #  실제로는 짐작한 교과를 쓴다. 판정 근거가 거짓이 된다.
+    #  그래서 자리표시자일 때는 `grade_scale` 로 따로 두어 **보여주기만** 한다.
+    scales = auto.get("grade_scale") or {}
+    if scales:
+        def _pick(cat, name):
+            for k, v in scales.items():
+                if k == "공통":
+                    continue
+                kk = re.sub(r"\s+", "", k)
+                if cat and cat in kk:
+                    return v
+                if name and re.sub(r"\s+", "", name) in kk:
+                    return v
+            return scales.get("공통")
+
+        for tr in tracks:
+            sc = _pick(tr.get("category"), tr.get("name"))
+            if not sc or not sc.get("scale"):
+                continue
+            g = tr.get("gyogwa")
+            real = isinstance(g, dict) and g and not g.get("placeholder")
+            if real:
+                g.setdefault("scale", sc["scale"])
+                if sc.get("ach"):
+                    g.setdefault("ach_scale", sc["ach"])
+                g.setdefault("_scale_source",
+                             {k: sc.get(k) for k in
+                              ("page", "printed_page", "section")})
+            else:
+                tr["grade_scale"] = sc
+
 
     #  모집단위별 인재상·핵심교과는 **학과마다** 다르므로 학과에 붙인다.
     #  이름이 요강 표기와 조금씩 다르므로(★·공백·가운뎃점) 정규화 색인을

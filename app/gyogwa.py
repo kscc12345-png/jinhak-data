@@ -37,7 +37,41 @@ _AREA_PAT = [
 _AREA_RE = [(a, re.compile(p)) for a, p in _AREA_PAT]
 
 #  교과군 이름 자체(학생이 '사회'·'과학' 이라고 적은 경우)
-_AREAS = {a for a, _ in _AREA_PAT} | {"국어", "수학", "영어", "한국사"}
+#  '교양' 은 규칙(_AREA_PAT)에는 없다 — 과목명으로는 못 알아본다.
+#  학생이 성적표를 보고 직접 고른 경우에만 믿는다.
+_AREAS = ({a for a, _ in _AREA_PAT}
+          | {"국어", "수학", "영어", "한국사", "교양"})
+
+
+#  대학이 쓰는 표기 → 우리 교과군.
+#
+#  우리는 체육·예술을 '예체능' 하나로 묶는다. 그런데 요강은 '체육' 이나
+#  '예술' 로 따로 적는다(고려대 교과전형 반영교과). 접어 주지 않으면
+#  대학이 체육을 반영한다고 해도 학생의 '운동과 건강' 이 안 붙는다.
+_AREA_ALIAS = {
+    "체육": "예체능", "예술": "예체능", "음악": "예체능", "미술": "예체능",
+    "체육·예술": "예체능", "체육/예술": "예체능", "예체능계": "예체능",
+    "기술": "기술·가정", "가정": "기술·가정", "정보": "기술·가정",
+    "기술가정": "기술·가정", "기술·가정/정보": "기술·가정",
+    "제2외국어/한문": "제2외국어", "외국어": "제2외국어",
+    "사회(역사/도덕 포함)": "사회", "사회(역사·도덕 포함)": "사회",
+    "과학(과학탐구실험 포함)": "과학",
+}
+
+
+def canon_area(s):
+    """교과군 이름을 우리 표기로 접는다. 모르면 그대로 돌려준다."""
+    t = (s or "").strip()
+    if t in _AREAS:
+        return t
+    a = _AREA_ALIAS.get(t)
+    if a:
+        return a
+    #  공백만 다른 경우까지 본다 ('기술 · 가정')
+    t2 = re.sub(r"\s+", "", t)
+    if t2 in _AREAS:
+        return t2
+    return _AREA_ALIAS.get(t2, t)
 
 
 def subject_area(name, kind=None):
@@ -45,8 +79,10 @@ def subject_area(name, kind=None):
     nm = (name or "").strip()
     if nm in _AREAS:
         return nm
-    if kind and kind in _AREAS:
-        return kind
+    if kind:
+        k = canon_area(kind)
+        if k in _AREAS:
+            return k
     for area, rx in _AREA_RE:
         if rx.search(nm):
             return area
@@ -72,13 +108,20 @@ def expand_subjects(student_gyogwa, subjects):
     '과학' 을 반영한다면 학생의 물리학Ⅰ·생명과학Ⅰ 이 다 들어간다.
     """
     out, seen = [], set()
-    for want in subjects:
+    for want0 in subjects:
+        #  대학 표기를 우리 교과군으로 접는다 ('체육' → '예체능')
+        want = canon_area(want0)
         #  ① 학생이 그 이름 그대로 가지고 있으면 그것(옛 자료 호환)
-        if want in student_gyogwa and want not in seen:
-            out.append(want)
-            seen.add(want)
-            continue
+        if want0 in student_gyogwa and want0 not in seen:
+            out.append(want0)
+            seen.add(want0)
+            #  여기서 멈추면 안 된다. 대학이 '체육' 을 반영한다고 했을 때
+            #  학생 과목 중에 마침 '체육' 이 있으면 그 한 과목만 붙고
+            #  '운동과 건강' 은 빠졌다. 이름이 맞은 것과 교과군을 펴는
+            #  것은 별개다 — 둘 다 한다.
         #  ② 그 교과군에 속하는 과목을 모두
+        if want not in _AREAS:
+            continue          # 교과군이 아니면 펼 것이 없다
         for nm, v in student_gyogwa.items():
             if nm in seen:
                 continue
