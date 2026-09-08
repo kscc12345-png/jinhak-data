@@ -1077,6 +1077,13 @@ def _track_criteria(tmethods, gyoinfo, cat):
     cands = [(k, v) for k, v in (tmethods or {}).items()
              if any(w in k for w in words) and v.get("confidence") != "low"]
     if not cands:
+        #  이름 낱말로는 못 찾는 전형이 있다 — 고려대(세종) '크림슨인재',
+        #  '미래인재' 에는 '종합' 이라는 낱말이 없다. 그런데 요강 절
+        #  제목이 '학생부종합(크림슨인재전형)' 이라고 스스로 말해 준다.
+        #  파서가 그때 실어 보낸 유형을 쓴다.
+        cands = [(k, v) for k, v in (tmethods or {}).items()
+                 if v.get("cat") == cat and v.get("confidence") != "low"]
+    if not cands:
         # 전형방법은 못 읽었지만 **반영교과는 읽은** 경우.
         # 교과 전형이면 교과를 반영하는 게 자명하므로, 교과 계산이 죽지 않게
         # method 는 자리표시자로 두고(화면엔 '확인되지 않음' 으로 표시됨)
@@ -1093,8 +1100,11 @@ def _track_criteria(tmethods, gyoinfo, cat):
         return None, None
     cands.sort(key=lambda kv: (kv[1].get("confidence") != "high",
                                -sum(kv[1].get("elements", {}).values())))
-    name, info = cands[0]
+    return _criteria_of(cands[0][0], cands[0][1], gyoinfo, cat)
 
+
+def _criteria_of(name, info, gyoinfo, cat):
+    """추출 항목 하나 → (method, gyogwa). 근거를 값 안에 함께 넣는다."""
     method = dict(info.get("elements") or {})
     if not method:
         return None, None
@@ -1118,6 +1128,24 @@ def _track_criteria(tmethods, gyoinfo, cat):
                               "text": gyoinfo.get("text"),
                               "confidence": gyoinfo.get("confidence")}}
     return method, gyogwa
+
+
+def _subtrack_criteria(tmethods, gyoinfo, cat, name):
+    """**이 세부 전형 절**에서 읽은 전형요소. 이름이 딱 맞아야 쓴다.
+
+    유형 공통값보다 정확하다 — 요강이 그 절에 적어 둔 값이다.
+    이름이 어긋나면 (None, None) 을 내고 공통값으로 물러난다.
+    """
+    if not name:
+        return None, None
+    want = re.sub(r"\s+", "", name)[:40]
+    for k, v in (tmethods or {}).items():
+        if v.get("confidence") == "low":
+            continue
+        if re.sub(r"\s+", "", k)[:40] != want:
+            continue
+        return _criteria_of(k, v, gyoinfo, cat)
+    return None, None
 
 
 def _count_index(ucounts):
@@ -1353,12 +1381,18 @@ def convert_auto(auto):
                     #  (연세대 미래는 교과우수자 일반형/추천형/기회균형이
                     #   각각 다른 방법으로 뽑는다). 트랙에 적혀 있으면
                     #  그것을 쓰고, 없으면 유형 공통값을 쓴다.
+                    #  이 절에서 읽은 전형요소가 있으면 그것이 맞다.
+                    #  (사람이 읽어 채운 값은 그대로 우선한다)
+                    sub_m, sub_g = _subtrack_criteria(
+                        tmethods, gyoinfo, cat, sub.get("name"))
                     tracks.append({
                         "id": "auto_%s_%d" % (cat, i),
                         "name": sub.get("name") or ("%s전형" % cat),
                         "category": cat,
-                        "method": sub.get("method") or real_m or {},
-                        "gyogwa": sub.get("gyogwa") or real_g,
+                        "method": (sub.get("method") or cur_m or sub_m
+                                   or par_m or real_m or {}),
+                        "gyogwa": (sub.get("gyogwa") or cur_g or sub_g
+                                   or par_g or real_g),
                         "auto": True, "units": su,
                         #  파서가 나눈 것인지 사람이 적어 준 것인지
                         "sub_src": sub.get("src") if auto_sub else None,

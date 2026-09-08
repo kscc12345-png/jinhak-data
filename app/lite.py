@@ -1740,7 +1740,12 @@ class Lite(ctk.CTk):
                         continue
                     no = st.get("stage")
                     el = st.get("elements") or {}
-                    body = " + ".join(f"{k} {v}%" for k, v in el.items())
+                    #  단계도 요강이 적은 단위를 따른다. 서울대 일반전형은
+                    #  '1단계 성적 100점 + 면접 100점' 이다 — %로 보여주면
+                    #  합이 200% 가 되어 잘못 읽은 값처럼 보인다.
+                    su = "점" if (st.get("unit") == "점"
+                                 or m.get("_unit") == "점") else "%"
+                    body = " + ".join(f"{k} {v}{su}" for k, v in el.items())
                     head = "일괄" if not no else f"{no}단계"
                     if body:
                         segs.append(f"{head} {body}")
