@@ -496,8 +496,18 @@ def _rule_index(auto):
     """전형유형(category)별 최저 규칙 색인: 이름/계열/공통 매칭용."""
     from collections import Counter
     idx = {}
+
     def ensure(cat):
-        return idx.setdefault(cat, {"by_name": {}, "by_gye": {}, "all": []})
+        return idx.setdefault(cat, {"by_name": {}, "by_gye": {},
+                                    "by_college": {}, "all": []})
+
+    #  요강은 최저 범위를 **단과대학**으로 적는 일이 많다(충남대 간호대학·
+    #  약학대학·의과대학, 한국외대 상경대학·영어대학). 학과 목록은 학과
+    #  단위라 이름으로는 안 닿는다 — '간호대학' 규칙을 간호학과가 못
+    #  받아 전형 대표값을 받았다. 학과→단과대학 자료가 이미 있으니
+    #  그것으로 잇는다.
+    _colleges = {_norm_unit(v) for v in
+                 (auto.get("unit_colleges") or {}).values() if v}
     for row in auto.get("suneung_detected", []):
         cat = row.get("category") or _guess_cat(row.get("track", "")) or "기타"
         c = ensure(cat)
@@ -544,7 +554,14 @@ def _rule_index(auto):
             info["name"] = units[0]
             info["units"] = list(units)
             for nm in units:
-                c["by_name"].setdefault(_norm_unit(nm), info)
+                nk = _norm_unit(nm)
+                c["by_name"].setdefault(nk, info)
+                #  단과대학 이름이면 소속 학과가 찾을 수 있게 따로 둔다.
+                #  괄호는 떼고 본다 — '자연과학대학(수학과, 정보통계학과
+                #  외)' 는 자연과학대학 규칙이다.
+                bk = _base_unit(nm)
+                if nk in _colleges or (bk and bk in _colleges):
+                    c["by_college"].setdefault(bk or nk, info)
             #  이름이 박힌 규칙은 다른 학과로 새 나가면 안 된다
             continue
         c["all"].append(info)
@@ -568,12 +585,17 @@ def _rule_index(auto):
         if row.get("exclude_units"):
             info["exclude"] = list(row["exclude_units"])
         t = c["by_track"].setdefault(tr, {"by_name": {}, "by_gye": {},
+                                          "by_college": {},
                                           "all": [], "common": None})
         units = row.get("units") or []
         if units:
             info["name"] = units[0]
             for nm in units:
-                t["by_name"].setdefault(_norm_unit(nm), info)
+                nk = _norm_unit(nm)
+                t["by_name"].setdefault(nk, info)
+                bk = _base_unit(nm)
+                if nk in _colleges or (bk and bk in _colleges):
+                    t["by_college"].setdefault(bk or nk, info)
         else:
             t["all"].append(info)
             if info["gye"] in ("인문", "자연"):
@@ -709,6 +731,15 @@ def _match_one(cat_idx, unit_name, gye, college, tag="", allow_gye=True):
 
     def _txt(info):
         return (info.get("search") or info.get("name") or "")
+
+    #  범위가 **단과대학**으로 적힌 규칙 — 그 단과대학 소속 학과가 받는다.
+    #  `all` 순회로는 못 찾는다. 이름이 박힌 규칙은 `by_name` 에만 들어가고
+    #  `all` 에는 안 들어가기 때문이다(다른 학과로 새 나가면 안 되니까).
+    if college:
+        bc = cat_idx.get("by_college") or {}
+        for key in (_norm_unit(college), _base_unit(college)):
+            if key and key in bc:
+                return bc[key], "단과일치" + tag
 
     for trig, coll in _SPECIAL:
         if trig in unit_name:
