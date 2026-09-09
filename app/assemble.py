@@ -492,6 +492,16 @@ def _sentence_gye(s):
     return ""
 
 
+def _su_rule_key(r):
+    """규칙을 견줄 수 있는 꼴로 — 같은 기준인지만 가른다."""
+    import json as _json
+    r = r or {}
+    return _json.dumps({k: r.get(k) for k in
+                        ("type", "sum", "n", "pool", "required", "each_max",
+                         "korean_max", "english_max", "extra")},
+                       ensure_ascii=False, sort_keys=True)
+
+
 def _rule_index(auto):
     """전형유형(category)별 최저 규칙 색인: 이름/계열/공통 매칭용."""
     from collections import Counter
@@ -508,6 +518,19 @@ def _rule_index(auto):
     #  그것으로 잇는다.
     _colleges = {_norm_unit(v) for v in
                  (auto.get("unit_colleges") or {}).values() if v}
+
+    #  같은 표를 표 경로와 본문 경로로 두 번 읽으므로 같은 기준이 두 번
+    #  들어온다. 한쪽은 범위가 붙고 한쪽은 안 붙는다. 범위 없는 복사본이
+    #  대표값 풀에 들어가면 그것이 대표로 뽑혀 엉뚱한 학과에 퍼진다 —
+    #  경희대 41학과가 의약 기준(3합 4)을 받았다(요강은 체육 계열에
+    #  '1개 영역 이상 3등급'). **범위를 아는 쪽이 더 많이 아는 쪽이다.**
+    _scoped_keys = set()
+    for _r in ((auto.get("su_scope") or {}).get("scoped") or []):
+        if _r.get("narrow") or not _r.get("category"):
+            continue
+        if _r.get("units") or _r.get("all_units") or _r.get("gye_scope"):
+            _scoped_keys.add((_r["category"],
+                              _su_rule_key(_r.get("rule"))))
     for row in auto.get("suneung_detected", []):
         cat = row.get("category") or _guess_cat(row.get("track", "")) or "기타"
         c = ensure(cat)
@@ -530,6 +553,13 @@ def _rule_index(auto):
         info = {"rule": row["rule"], "page": row.get("page"), "src": "본문",
                 "name": "", "search": sent, "gye": gye, "sentence": sent,
                 "track": row.get("track", "")}
+        #  범위와 함께 이미 있는 기준이면 **대표 후보에서 뺀다.**
+        #  버리지는 않는다 — 단과일치·이름일치에는 쓸 수 있다.
+        #  `common` 은 라벨 최빈값으로 뽑으므로, 같은 표를 두 경로로
+        #  읽어 두 번 세어지면 그것이 대표가 된다. 경희대 의약 기준이
+        #  그렇게 대표가 되어 119학과가 받았다(실측).
+        if (cat, _su_rule_key(row.get("rule"))) in _scoped_keys:
+            info["dup"] = True
         c["all"].append(info)
         if gye in ("인문", "자연"):
             c["by_gye"].setdefault(gye, info)
@@ -539,16 +569,33 @@ def _rule_index(auto):
     for row in ((auto.get("su_scope") or {}).get("scoped") or []):
         if row.get("narrow") or not row.get("category"):
             continue          # 재직자·기회균형 등은 대표값으로 쓰면 안 된다
+
         c = ensure(row["category"])
         sent = row.get("text") or row.get("sentence") or ""
         gye = _sentence_gye(sent)
         info = {"rule": row["rule"], "page": row.get("page"), "src": "귀속",
                 "name": "", "search": sent, "gye": gye, "sentence": sent,
                 "track": row.get("track", "")}
+        #  범위 없는 복사본은 대표 후보에서 뺀다(위와 같은 이유)
+        if not (row.get("units") or row.get("all_units")
+                or row.get("gye_scope")):
+            if (row["category"],
+                    _su_rule_key(row.get("rule"))) in _scoped_keys:
+                info["dup"] = True
         #  요강이 '어느 모집단위' 인지 적어 놨으면 그대로 지킨다.
         #  서울대 일반전형은 미술대학 디자인과만 최저가 있다.
         if row.get("exclude_units"):
             info["exclude"] = list(row["exclude_units"])
+        #  범위가 **계열**로 적힌 규칙 — 그 계열 학과만 받는다.
+        #  대표값 풀(`all`)에는 넣지 않는다. 넣으면 계열을 못 잡은
+        #  학과가 남의 계열 기준을 받는다(경희대 119학과 — 실측).
+        #  계열을 못 잡은 학과는 '미확인' 이 되어 요강을 직접 보게 되고,
+        #  그게 남의 기준을 받는 것보다 낫다.
+        gs = row.get("gye_scope") or []
+        if gs:
+            for g in gs:
+                c["by_gye"].setdefault(g, info)
+            continue
         units = row.get("units") or []
         if units:
             info["name"] = units[0]
@@ -615,9 +662,16 @@ def _rule_index(auto):
             allc["by_gye"].setdefault(k, v)
     idx["__ALL__"] = allc
     for cat, c in idx.items():
-        if c["all"]:
-            lab = Counter(x["rule"].get("label", "")[:20] for x in c["all"]).most_common(1)[0][0]
-            c["common"] = next((x for x in c["all"] if x["rule"].get("label", "")[:20] == lab), c["all"][0])
+        #  대표값은 **중복 아닌 것**에서 뽑는다. 같은 표를 두 경로로 읽어
+        #  두 번 세어진 규칙이 최빈값이 되면 엉뚱한 기준이 전형 전체에
+        #  퍼진다(경희대 의약 기준 → 119학과 — 실측).
+        pool = [x for x in c["all"] if not x.get("dup")] or c["all"]
+        if pool:
+            lab = Counter(x["rule"].get("label", "")[:20]
+                          for x in pool).most_common(1)[0][0]
+            c["common"] = next((x for x in pool
+                                if x["rule"].get("label", "")[:20] == lab),
+                               pool[0])
         else:
             c["common"] = None
     return idx
@@ -1329,6 +1383,27 @@ def convert_auto(auto):
             #  주장하지 않는 이유는 `_su_none_cats` 주석에 있다. 규칙을
             #  못 찾았을 때만 바꾼다 — 찾은 규칙은 건드리지 않는다.
             nrows = su_none.get(cat)
+            #  요강이 '모든 모집단위에서 없음' 이라고 **범위를 명시**한
+            #  경우는 규칙을 찾았어도 주장한다. 건국대(글로컬)은
+            #  '의예과를 제외한 모든 모집단위에서 수능최저 없음' 이라고
+            #  적는데, 지금은 대표값 규칙이 이겨서 교과 41학과 중
+            #  40학과가 있어선 안 되는 '3개 합 6' 을 받았다(실측).
+            #
+            #  이름이 박힌 규칙(의예과)은 그대로 둔다 — 그게 요강이
+            #  말한 예외다.
+            if nrows and info is not None and kind == "전형공통":
+                #  **예외가 명시된 것만** 주장한다. `all_units` 만으로는
+                #  안 된다 — '미적용' 이라는 말에 범위가 없는데 zone
+                #  전체에서 '전 모집단위' 를 주워 온 경우가 있고, 그때
+                #  좁은 전형의 '없음' 이 유형 전체에 퍼진다
+                #  (충남대 교과 49학과 — 실측. 충남대 교과에는 최저가 있다)
+                claim = [r for r in nrows
+                         if r.get("all_units") and r.get("exclude_units")
+                         and not _excluded(
+                             {"exclude": r.get("exclude_units") or []}, nm)]
+                if claim:
+                    info, kind = None, "요강근거"
+                    nrows = claim
             if nrows and info is None:
                 rule = {"type": "none", "label": _su_none_label(nrows)}
                 kind = "요강근거"
