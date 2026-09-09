@@ -929,6 +929,18 @@ class Lite(ctk.CTk):
         self.class_var.set(""); self.num_var.set(""); self.name_var.set("")
 
     def _on_curriculum_change(self, val):
+        #  2022 개정은 석차등급이 **5등급**이다. 체크를 따로 두면
+        #  학생이 교육과정만 고르고 잊는다 — 그러면 5등급 1등급
+        #  (상위 10%)을 9등급 1등급(상위 4%)으로 읽어 실제보다 좋게
+        #  본다. 위험한 쪽이라 함께 켜 준다(끄는 건 사용자 자유).
+        if val == "2022 개정":
+            v = getattr(self, "five_var", None)
+            if v is not None and not v.get():
+                v.set(True)
+                n = getattr(self, "five_note", None)
+                if n is not None:
+                    n.configure(text="2022 개정 교육과정은 석차등급이 "
+                                     "5등급이라 함께 켰습니다.")
         if val == "2022 개정":
             self.math_menu.configure(values=["공통(선택없음)"])
             self.math_var.set("공통(선택없음)")

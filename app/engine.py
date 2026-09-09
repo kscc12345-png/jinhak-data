@@ -158,6 +158,28 @@ def pct_from_z(raw, mean, sd):
     return round(100.0 * (1.0 - _norm_cdf(z)), 3)
 
 
+def guess_five(subjects):
+    """성적표가 스스로 말하는 등급 체계. (5등급인가, 근거).
+
+    2022 개정 교육과정(2025년 고1~)은 석차등급이 5등급이고 성취평가가
+    A~E 5단계다. **등급 숫자만으로는 못 가린다** — 9등급제에서도 1~5만
+    받을 수 있다. 그래서 성적표에만 있는 표시를 본다.
+
+    이걸 놓치면 5등급 1등급(상위 10%)을 9등급 1등급(상위 4%)으로 읽어
+    실제보다 좋게 본다 — 학생이 못 갈 곳을 갈 수 있다고 읽는 쪽이다.
+    """
+    for s in subjects or []:
+        if (s.get("type") or "").strip() == "융합선택":
+            return True, "'융합선택' 과목이 있습니다 (2022 개정 교육과정)"
+        for f in ("dstD", "dstE"):
+            if any(str(v or "").strip() for v in (s.get(f) or {}).values()):
+                return True, "성취도별 분포에 D·E 가 있습니다 (5단계 성취평가)"
+        for v in (s.get("ach") or {}).values():
+            if str(v or "").strip().upper() in ("D", "E"):
+                return True, "성취도에 D·E 가 있습니다 (5단계 성취평가)"
+    return False, ""
+
+
 def subject_grade(rec, scale=9):
     """과목 한 학기 성적 → (등급, 근거).
 

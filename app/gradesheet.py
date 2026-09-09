@@ -48,11 +48,19 @@ LABEL_OF_AREA = {b: a for a, b in GYOGWA_CHOICES}
 LABEL_OF_AREA.setdefault("일반", "교양")
 
 #  성적표의 '교과 종류' 칸
-SUBJ_TYPES = ["일반선택", "진로선택", "공통", "과학탐구실험", "전문교과"]
+#
+#  '융합선택' 은 2022 개정 교육과정(2025년 고1~)에서 생긴 유형이다.
+#  공통 / 일반선택 / 진로선택 / 융합선택 네 가지가 된다. 미리 넣어 둔다 —
+#  없으면 그 과목을 넣을 자리가 없어 학생이 유형을 잘못 고른다.
+SUBJ_TYPES = ["일반선택", "진로선택", "융합선택", "공통",
+              "과학탐구실험", "전문교과"]
 
 #  학기별로 값이 따로 있는 칸들
+#
+#  D·E 는 2022 개정의 5단계 성취평가(A~E)용이다. `engine.pct_from_dist`
+#  는 이미 A~E 를 다루는데 입력 칸이 셋뿐이어서 적을 수가 없었다.
 SEM_FIELDS = ("unit", "grade", "raw", "mean", "sd", "cnt",
-              "ach", "dstA", "dstB", "dstC")
+              "ach", "dstA", "dstB", "dstC", "dstD", "dstE")
 
 #  (머리글, 필드, 폭, 설명)
 COLS = [
@@ -65,10 +73,13 @@ COLS = [
     ("과목평균", "mean", 60, "성적표의 과목평균"),
     ("표준편차", "sd", 60, "성적표의 표준편차"),
     ("수강자", "cnt", 52, "수강자수"),
-    ("성취도", "ach", 52, "A/B/C"),
+    ("성취도", "ach", 52, "A/B/C (5단계는 A~E)"),
     ("A%", "dstA", 44, "성취도별 분포 A"),
     ("B%", "dstB", 44, "성취도별 분포 B"),
     ("C%", "dstC", 44, "성취도별 분포 C"),
+    #  5단계 성취평가(2022 개정)용. 3단계 성적표에서는 비워 둔다.
+    ("D%", "dstD", 44, "성취도별 분포 D (5단계)"),
+    ("E%", "dstE", 44, "성취도별 분포 E (5단계)"),
 ]
 
 GUIDE = (
@@ -88,7 +99,8 @@ def subject_record(subj, sem):
         return str((subj.get(f) or {}).get(sem, "") or "").strip()
 
     dist = {}
-    for key, f in (("A", "dstA"), ("B", "dstB"), ("C", "dstC")):
+    for key, f in (("A", "dstA"), ("B", "dstB"), ("C", "dstC"),
+                   ("D", "dstD"), ("E", "dstE")):
         v = g(f)
         if v:
             dist[key] = v
@@ -103,7 +115,7 @@ def blank_subject(sems, kind=None, type_="일반선택", name=""):
             "sems": list(sems),
             "grade": {}, "ach": {}, "raw": {}, "unit": {},
             "mean": {}, "sd": {}, "cnt": {},
-            "dstA": {}, "dstB": {}, "dstC": {}}
+            "dstA": {}, "dstB": {}, "dstC": {}, "dstD": {}, "dstE": {}}
 
 
 #  ── 표 붙여넣기 ─────────────────────────────────────────────────
@@ -447,7 +459,8 @@ class GradeSheet(ctk.CTkToplevel):
             rec[f] = (e.get().strip() if e is not None else "")
         rec["ach"] = rec["ach"].upper()
         dist = {}
-        for key, f in (("A", "dstA"), ("B", "dstB"), ("C", "dstC")):
+        for key, f in (("A", "dstA"), ("B", "dstB"), ("C", "dstC"),
+                       ("D", "dstD"), ("E", "dstE")):
             e = self.cells.get((sid, f))
             v = e.get().strip() if e is not None else ""
             if v:
@@ -894,6 +907,23 @@ class GradeSheet(ctk.CTkToplevel):
         except Exception:
             pass
         app = self.app
+        #  성적표가 5등급제라고 말하면 켜 준다. 학생이 체크를 잊으면
+        #  5등급 1등급(상위 10%)을 9등급 1등급(상위 4%)으로 읽어
+        #  실제보다 좋게 본다 — 못 갈 곳을 갈 수 있다고 읽는 쪽이다.
+        try:
+            five, why = self.engine.guess_five(getattr(app, "subjects", []))
+            var = getattr(app, "five_var", None)
+            if five and var is not None and not var.get():
+                var.set(True)
+                note = getattr(app, "five_note", None)
+                if note is not None:
+                    note.configure(
+                        text="5등급제로 자동 전환했습니다 — " + why)
+                f = getattr(app, "_on_five_scale", None)
+                if callable(f):
+                    f()
+        except Exception:
+            pass
         try:
             app._sheet_win = None
         except Exception:
