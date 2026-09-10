@@ -53,7 +53,9 @@ def _norm_unit(nm):
     s = _re.sub(r"[\*\★\◆\■\●\○\※\#\†\^\♣\◈\▲\▼\♠\♥\☆\◇\◎\▷\▶\✓\✔\✦\✧\·\•\☎\㈜]+", " ", nm)
     s = _re.sub(r"\[전공개방\]", "", s)
     s = _re.sub(r"^H(?=[가-힣])", "", s)          # H스크랜튼 -> 스크랜튼
-    s = _re.sub(r"\s*-\s*.*", "", s)              # 하이픈 세부전공 분리
+    #  붙임표는 종류가 여럿이다. `-` 만 떼면 '의상디자인학과–인문계'
+    #  (en dash)가 '의상디자인학과' 와 다른 학과로 남는다.
+    s = _re.sub(r"\s*[-\u2010-\u2015\u2212\uff0d]\s*.*", "", s)
     s = _re.sub(r"\bSW\b", "", s)                 # SW 전형 태그 제거
     #  가운뎃점은 종류가 여럿이다(_DOTS). 눈으로는 같은 점인데 요강과
     #  어디가가 서로 다른 것을 써서, 안 지우면 같은 학과가 안 붙는다.
@@ -1075,7 +1077,7 @@ def _hdr_name(h):
 _SUB_NARROW = re.compile(
     r"기회\s*균형|고른\s*기회|사회\s*통합|사회\s*기여|사회\s*공헌"
     r"|특수\s*교육|장애|농어촌|만학도|재직자|특성화고|계약\s*학과"
-    r"|북한이탈|서해5도|지역\s*의사|국방|다문화|보훈|기초\s*생활"
+    r"|북한이탈|서해5도|지역\s*의사|국방|국가\s*안보|다문화|보훈|기초\s*생활"
     r"|재외국민|외국인|편입|정원\s*외|취업자|평생\s*학습")
 
 
@@ -1276,6 +1278,12 @@ def _track_criteria(tmethods, gyoinfo, cat):
         #  파서가 그때 실어 보낸 유형을 쓴다.
         cands = [(k, v) for k, v in (tmethods or {}).items()
                  if v.get("cat") == cat and v.get("confidence") != "low"]
+    #  **좁은 전형만 남았으면 대표값을 만들지 않는다.** `_rank` 로 뒤로
+    #  밀어도 하나뿐이면 그것이 뽑힌다 — 공주대 종합의 유일한 후보가
+    #  '특성화고교졸업자전형 서류 100' 이어서, 일반 학생이 그 비율로
+    #  계산됐다(요강은 서류 70 + 면접 30 — 실측).
+    if cands and all(_SUB_NARROW.search(k) for k, _v in cands):
+        cands = []
     if not cands:
         # 전형방법은 못 읽었지만 **반영교과는 읽은** 경우.
         # 교과 전형이면 교과를 반영하는 게 자명하므로, 교과 계산이 죽지 않게
@@ -1291,8 +1299,26 @@ def _track_criteria(tmethods, gyoinfo, cat):
                                  "text": gyoinfo.get("text"),
                                  "confidence": gyoinfo.get("confidence")}})
         return None, None
-    cands.sort(key=lambda kv: (kv[1].get("confidence") != "high",
-                               -sum(kv[1].get("elements", {}).values())))
+    def _rank(kv):
+        """유형 대표값 고르는 순서.
+
+        전에는 **합이 큰 것**이 이겼다. 점으로 적은 표는 총점이 100 을
+        넘으므로 늘 이기고, 좁은 전형이 유형 전체의 대표가 됐다 —
+        충남대 교과가 국가안보교과전형의 '1단계 100점 + 면접 20점'
+        (합 120)을 받아 일반 학생이 남의 비율로 계산됐다(실측).
+        """
+        k, v = kv
+        el = v.get("elements") or {}
+        tot = sum(x for x in el.values() if isinstance(x, (int, float)))
+        #  비율로 적고 합이 100 인 것이 가장 믿을 만하다
+        pct100 = (v.get("unit") == "%" and 98 <= tot <= 102)
+        return (v.get("confidence") != "high",
+                bool(_SUB_NARROW.search(k)),
+                not pct100,
+                -len(el),
+                k)
+
+    cands.sort(key=_rank)
     return _criteria_of(cands[0][0], cands[0][1], gyoinfo, cat)
 
 
@@ -1339,6 +1365,11 @@ def _subtrack_criteria(tmethods, gyoinfo, cat, name):
             continue
         return _criteria_of(k, v, gyoinfo, cat)
     return None, None
+
+
+#  모집인원 표의 줄이지만 모집단위가 아닌 것 — 안내·묶음 이름이다
+_GRID_NOTUNIT = re.compile(r"전공\s*예약|합\s*계|소\s*계|총\s*계|^계$"
+                           r"|모집\s*단위|정원\s*내|정원\s*외|비고|참고")
 
 
 def _count_index(ucounts):
@@ -1465,6 +1496,30 @@ def convert_auto(auto):
             if key:
                 _units_by_norm.setdefault(key, b2)
 
+    #  **모집인원 표에만 있는 학과를 더한다.** 학과 목록은 본문 글에서
+    #  만드는데, 표에만 적힌 학과가 62개(13대학) 있었다 — 이화 성악과·
+    #  관현악과, 충남대 음악과·회화과, 한국외대 독일어과, 한국체대
+    #  공연예술학과 발레… 어느 전형에도 안 나와 학생이 찾을 수 없었다.
+    #  표는 숫자가 적힌 으뜸 근거다.
+    _colmap = auto.get("unit_colleges") or {}
+    for cnm in sorted((auto.get("unit_counts") or {})):
+        if cnm in drop or _GRID_NOTUNIT.search(cnm):
+            continue
+        nk, bk = _norm_unit(cnm), _base_unit(cnm)
+        if not nk or nk in _units_by_norm or bk in _units_by_norm:
+            continue
+        _col = _colmap.get(cnm) or ""
+        _tot = ((auto.get("unit_counts") or {}).get(cnm) or {}).get("total")
+        all_units[cnm] = {
+            "unit": cnm, "college": _col or None, "campus": None,
+            "gyeyeol": _guess_gyeyeol(cnm, _col),
+            "count": _tot if isinstance(_tot, int) else None,
+            "unit_page": None, "cats": set(), "from_counts": True,
+        }
+        for key in (nk, bk):
+            if key:
+                _units_by_norm.setdefault(key, all_units[cnm])
+
     #  모집인원 표가 **어느 전형으로 뽑는지 숫자로** 말한다. 본문 글에는
     #  칼럼이 없어 그걸 알 수 없는 요강이 많다 — 아주대 논술은 본문으로
     #  1학과인데 표에는 34학과다(실측). 논술·실기는 학과가 검출되지
@@ -1488,6 +1543,9 @@ def convert_auto(auto):
             c = _su_cat_like(re.sub(r"#\d+$", "", hdr))
             if c and c != "정시":
                 base["cats"].add(c)
+                #  표에서 온 것만 따로 — '실기로만 뽑는가' 를 가리는
+                #  근거는 표여야 한다. 본문에서 온 유형과 섞으면 안 된다.
+                base.setdefault("grid_cats", set()).add(c)
 
     # 입결(합격컷) 색인 — 학과명 기준
     ipg = {ip["unit"]: ip for ip in auto.get("ipgyeol_detected", [])}
@@ -1503,6 +1561,17 @@ def convert_auto(auto):
             gye = base["gyeyeol"]
             college = base.get("college") or ""
             if sub is not None and not _subtrack_takes(sub, nm, college):
+                continue
+            #  **표가 '실기로만 뽑는다' 고 말한 학과는 교과·종합에
+            #  내놓지 않는다.** 교과·종합은 학과를 전부 담는 설계라서,
+            #  실기 전용 학과가 거기 나와 '갈 수 있다' 로 읽혔다
+            #  (이화 성악과·관현악과, 충남대 음악과·회화과 — 실측).
+            #
+            #  거꾸로는 하지 않는다 — 교과 열에만 값이 있는 학과를
+            #  종합에서 빼면, 표의 종합 열을 못 읽은 대학에서 갈 수
+            #  있는 곳을 못 보게 된다(충남대가 그렇다).
+            if cat not in SELECTIVE and (base.get("grid_cats") or set()) \
+                    == {"실기"}:
                 continue
             info, kind = _match_rule(cat_idx, nm, gye, college, all_idx=fb)
             # 선택형(논술/실기)은 과다나열 방지.
