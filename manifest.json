@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-09 17:22",
-  "version": "1.8.4",
-  "version_code": 184,
+  "generated": "2026-09-10 10:13",
+  "version": "1.8.5",
+  "version_code": 185,
   "min_version_code": 100,
   "mobile_version": "1.1.0",
   "mobile_version_code": 2,
   "mobile_min_version_code": 1,
-  "app_version": "0290b714144e",
+  "app_version": "71aa71a20961",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -21,15 +21,15 @@
     "suneung.py",
     "version.json"
   ],
-  "admin_version": "1.3.4",
-  "admin_version_code": 134,
+  "admin_version": "1.3.5",
+  "admin_version_code": 135,
   "admin_min_version_code": 100,
   "universities": [
     {
       "code": "ajou",
       "name": "아주대학교",
       "year": 2027,
-      "units": 177
+      "units": 194
     },
     {
       "code": "cau",
@@ -47,7 +47,7 @@
       "code": "chungnam",
       "name": "충남대학교",
       "year": 2027,
-      "units": 364
+      "units": 379
     },
     {
       "code": "dankook",
@@ -59,19 +59,19 @@
       "code": "dongguk",
       "name": "동국대학교(서울)",
       "year": 2027,
-      "units": 238
+      "units": 319
     },
     {
       "code": "dongguk_wise",
       "name": "동국대학교(WISE)",
       "year": 2027,
-      "units": 156
+      "units": 157
     },
     {
       "code": "ewha",
       "name": "이화여자대학교",
       "year": 2027,
-      "units": 237
+      "units": 278
     },
     {
       "code": "hanbat",
@@ -83,7 +83,7 @@
       "code": "hanyang",
       "name": "한양대학교(서울)",
       "year": 2027,
-      "units": 281
+      "units": 314
     },
     {
       "code": "hufs",
@@ -95,7 +95,7 @@
       "code": "khu",
       "name": "경희대학교",
       "year": 2027,
-      "units": 354
+      "units": 419
     },
     {
       "code": "knsu",
@@ -113,31 +113,31 @@
       "code": "konkuk",
       "name": "건국대학교(서울)",
       "year": 2027,
-      "units": 318
+      "units": 326
     },
     {
       "code": "konkuk_glocal",
       "name": "건국대학교(글로컬)",
       "year": 2027,
-      "units": 127
+      "units": 112
     },
     {
       "code": "konyang",
       "name": "건양대학교",
       "year": 2027,
-      "units": 103
+      "units": 87
     },
     {
       "code": "korea",
       "name": "고려대학교(서울)",
       "year": 2027,
-      "units": 144
+      "units": 200
     },
     {
       "code": "korea_sejong",
       "name": "고려대학교(세종)",
       "year": 2027,
-      "units": 124
+      "units": 152
     },
     {
       "code": "mokwon",
@@ -158,16 +158,22 @@
       "units": 246
     },
     {
+      "code": "skku",
+      "name": "성균관대학교",
+      "year": 2027,
+      "units": 168
+    },
+    {
       "code": "snu",
       "name": "서울대학교",
       "year": 2027,
-      "units": 328
+      "units": 206
     },
     {
       "code": "uos",
       "name": "서울시립대학교",
       "year": 2027,
-      "units": 203
+      "units": 216
     },
     {
       "code": "woosong",
@@ -179,7 +185,7 @@
       "code": "yonsei",
       "name": "연세대학교(서울)",
       "year": 2027,
-      "units": 257
+      "units": 301
     },
     {
       "code": "yonsei_mirae",

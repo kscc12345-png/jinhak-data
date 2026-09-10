@@ -525,12 +525,27 @@ def _rule_index(auto):
     #  경희대 41학과가 의약 기준(3합 4)을 받았다(요강은 체육 계열에
     #  '1개 영역 이상 3등급'). **범위를 아는 쪽이 더 많이 아는 쪽이다.**
     _scoped_keys = set()
+    #  그 규칙의 짝이 **넓은 범위**(계열·전 모집단위)로도 적혔는가.
+    #  넓은 짝이 있으면 그 규칙은 전형에 두루 걸리는 기준이므로 범위
+    #  없는 사본도 대표값이 될 수 있다(경희대 교과 인문/자연 2합 5).
+    _broad_keys = set()
+    #  유형마다 규칙이 몇 개고 그중 범위가 적힌 것이 몇 개인가.
+    #  대부분에 범위가 적혀 있으면 '전형 공통 기준' 이라는 것이 없다 —
+    #  요강이 학과마다 따로 적은 대학이다. 그때 범위 없는 규칙 하나를
+    #  대표로 뽑으면 그것은 남의 학과 기준이 된다(충남대 교과 49학과).
+    _n_rule, _n_scoped, _n_units = {}, {}, {}
     for _r in ((auto.get("su_scope") or {}).get("scoped") or []):
         if _r.get("narrow") or not _r.get("category"):
             continue
+        _c = _r["category"]
+        _n_rule[_c] = _n_rule.get(_c, 0) + 1
         if _r.get("units") or _r.get("all_units") or _r.get("gye_scope"):
-            _scoped_keys.add((_r["category"],
-                              _su_rule_key(_r.get("rule"))))
+            _n_scoped[_c] = _n_scoped.get(_c, 0) + 1
+            _scoped_keys.add((_c, _su_rule_key(_r.get("rule"))))
+            if _r.get("all_units") or _r.get("gye_scope"):
+                _broad_keys.add((_c, _su_rule_key(_r.get("rule"))))
+        if _r.get("units"):
+            _n_units[_c] = _n_units.get(_c, 0) + 1
     for row in auto.get("suneung_detected", []):
         cat = row.get("category") or _guess_cat(row.get("track", "")) or "기타"
         c = ensure(cat)
@@ -558,8 +573,11 @@ def _rule_index(auto):
         #  `common` 은 라벨 최빈값으로 뽑으므로, 같은 표를 두 경로로
         #  읽어 두 번 세어지면 그것이 대표가 된다. 경희대 의약 기준이
         #  그렇게 대표가 되어 119학과가 받았다(실측).
-        if (cat, _su_rule_key(row.get("rule"))) in _scoped_keys:
+        _k = (cat, _su_rule_key(row.get("rule")))
+        if _k in _scoped_keys:
             info["dup"] = True
+            #  짝의 범위가 계열·전 모집단위면 대표값이 될 수 있다
+            info["dup_broad"] = _k in _broad_keys
         c["all"].append(info)
         if gye in ("인문", "자연"):
             c["by_gye"].setdefault(gye, info)
@@ -579,9 +597,10 @@ def _rule_index(auto):
         #  범위 없는 복사본은 대표 후보에서 뺀다(위와 같은 이유)
         if not (row.get("units") or row.get("all_units")
                 or row.get("gye_scope")):
-            if (row["category"],
-                    _su_rule_key(row.get("rule"))) in _scoped_keys:
+            _k = (row["category"], _su_rule_key(row.get("rule")))
+            if _k in _scoped_keys:
                 info["dup"] = True
+                info["dup_broad"] = _k in _broad_keys
         #  요강이 '어느 모집단위' 인지 적어 놨으면 그대로 지킨다.
         #  서울대 일반전형은 미술대학 디자인과만 최저가 있다.
         if row.get("exclude_units"):
@@ -662,10 +681,25 @@ def _rule_index(auto):
             allc["by_gye"].setdefault(k, v)
     idx["__ALL__"] = allc
     for cat, c in idx.items():
+        #  규칙 대부분에 범위가 적힌 유형은 대표값을 쓰지 않는다.
+        #  '전형 공통 기준' 이라는 것이 없는 대학이다.
+        n_all, n_sc = _n_rule.get(cat, 0), _n_units.get(cat, 0)
+        #  학과·단과대학 단위 범위가 규칙의 **40% 이상**이면 그 대학은
+        #  학과마다 기준을 따로 적은 것이다. 충남대 교과는 23개 중
+        #  11개(48%)다 — 대표값을 쓰면 49학과가 남의 학과 기준을 받는다.
+        #  계열·전 모집단위 범위는 세지 않는다 — 그건 공통 기준이 있다는
+        #  뜻이라 대표값이 맞다(경희대 교과 6개 중 units 1개).
+        c["no_common"] = bool(n_all >= 4 and n_sc * 5 >= n_all * 2)
+    for cat, c in idx.items():
         #  대표값은 **중복 아닌 것**에서 뽑는다. 같은 표를 두 경로로 읽어
         #  두 번 세어진 규칙이 최빈값이 되면 엉뚱한 기준이 전형 전체에
         #  퍼진다(경희대 의약 기준 → 119학과 — 실측).
-        pool = [x for x in c["all"] if not x.get("dup")] or c["all"]
+        #  중복 아닌 것이 먼저다. 하나도 없으면 **넓은 짝을 가진**
+        #  사본만 되살린다 — 좁은 짝만 있는 사본을 되살리면 그 학과들
+        #  만의 기준이 전형 전체에 퍼진다(충남대 종합 62학과가
+        #  수의과대학 기준을 받았다 — 실측).
+        pool = ([x for x in c["all"] if not x.get("dup")]
+                or [x for x in c["all"] if x.get("dup_broad")])
         if pool:
             lab = Counter(x["rule"].get("label", "")[:20]
                           for x in pool).most_common(1)[0][0]
@@ -766,6 +800,19 @@ def _su_none_label(rows):
             "요강을 확인하세요." % (who, where))
 
 
+#  예체능인지는 **요강이 적은 단과대학**으로 본다. `_guess_gyeyeol` 은
+#  체육·무용·미술을 '공통' 으로 보는데 그것을 바꾸면 교과 계산까지
+#  흔들리므로, 최저 계열 매칭에만 쓰는 판정을 따로 둔다.
+_ART_COLLEGE = __import__("re").compile(
+    r"예술|디자인|체육|음악|미술|무용|연극|영화|공연|스포츠|조형")
+#  단과대학을 못 읽은 학과만 이름으로 본다. 낱말을 좁게 둔다 —
+#  '디자인' · '의상' · '영상' 은 예체능이 아닌 학과에도 들어간다
+#  (경희대 조리&푸드디자인학과는 호텔관광대학, 의상학과는 생활과학대학).
+_ART_UNIT = __import__("re").compile(
+    r"체육|스포츠|태권도|유도|무용|성악|작곡|기악|피아노|관현악|"
+    r"미술|회화|조소|한국화|공예|연극|연기|실용음악|예체능|예술")
+
+
 def _match_one(cat_idx, unit_name, gye, college, tag="", allow_gye=True):
     """단일 색인에서 매칭 시도. (info, kind) 또는 (None,None).
     allow_gye=False면 계열추정(광범위) 제외 — 타전형 폴백 시 오적용 방지."""
@@ -778,9 +825,12 @@ def _match_one(cat_idx, unit_name, gye, college, tag="", allow_gye=True):
     _nk = _norm_unit(unit_name)
     if _nk and _nk in cat_idx["by_name"]:
         return cat_idx["by_name"][_nk], "이름일치" + tag
-    for _k, _v in cat_idx["by_name"].items():
-        if _nk and len(_nk) >= 3 and (_nk in _k or _k in _nk):
-            return _v, "이름일치" + tag
+    #  여럿에 붙으면 **긴 이름**이 이긴다 — 더 좁게 적은 쪽이 그 학과를
+    #  말한 것이다. 그리고 낱말 자리를 본다('약학과' ≠ '한약학과').
+    if _nk and len(_nk) >= 3:
+        for _k in sorted(cat_idx["by_name"], key=len, reverse=True):
+            if _name_match(_nk, _k):
+                return cat_idx["by_name"][_k], "이름일치" + tag
     allrules = cat_idx.get("all", [])
 
     def _txt(info):
@@ -804,9 +854,51 @@ def _match_one(cat_idx, unit_name, gye, college, tag="", allow_gye=True):
         for info in allrules:
             if college in _txt(info):
                 return info, "단과일치" + tag
+    #  예체능 계열 규칙이 있으면 예체능 학과가 받는다. 없으면 그
+    #  학과들이 인문/자연 기준이나 전형 대표값을 받는다(경희대
+    #  아동가족학과가 체육 기준을 받았다 — 실측).
+    #
+    #  단과대학이 읽혔으면 그것이 정한다. 단과대학이 예체능이 아니면
+    #  예체능 규칙을 주지 않는다 — 이름 낱말만 보면 조리&푸드디자인학과
+    #  (호텔관광대학)가 체육 기준을 받는다.
+    if allow_gye and "예체능" in cat_idx.get("by_gye", {}):
+        if college:
+            if _ART_COLLEGE.search(college):
+                return cat_idx["by_gye"]["예체능"], "계열추정" + tag
+        elif _ART_UNIT.search(unit_name or ""):
+            return cat_idx["by_gye"]["예체능"], "계열추정" + tag
     if allow_gye and gye in cat_idx.get("by_gye", {}):
         return cat_idx["by_gye"][gye], "계열추정" + tag
     return None, None
+
+
+#  학과 이름이 끝나는 글자. 짧은 이름이 이 뒤에서 시작하면 이름 자리다.
+_UNIT_END = set("과부열공원학군계")
+
+
+def _name_touch(short, long_):
+    """`short` 가 `long_` 안의 **이름 자리**에 있는가.
+
+    부분 일치만 보면 '약학과' 가 '한약학과' 에 붙는다. 앞 글자가 학과
+    이름의 끝 글자('전자공학부|전자공학과')일 때만 받는다.
+    """
+    if not short or not long_:
+        return False
+    if short == long_:
+        return True
+    i = long_.find(short)
+    while i >= 0:
+        if i == 0 or long_[i - 1] in _UNIT_END:
+            return True
+        i = long_.find(short, i + 1)
+    return False
+
+
+def _name_match(a, b):
+    """두 학과 이름이 같은 학과를 말하는가 — 어느 쪽이 길어도 좋다."""
+    if not a or not b:
+        return False
+    return _name_touch(a, b) if len(a) <= len(b) else _name_touch(b, a)
 
 
 def _excluded(info, unit_name):
@@ -816,8 +908,9 @@ def _excluded(info, unit_name):
         return False
     nk = _norm_unit(unit_name)
     for e in ex:
-        ek = _norm_unit(e)
-        if ek and nk and (ek in nk or nk in ek):
+        #  '약학과 제외' 가 한약학과까지 빼면, 한약학과는 '그 외' 규칙
+        #  에서도 빠지고 남의 규칙을 받는다(경희대 — 실측).
+        if _name_match(_norm_unit(e), nk):
             return True
     return False
 
@@ -837,6 +930,7 @@ def _match_rule(cat_idx, unit_name, gye, college="", all_idx=None):
         if info and not _excluded(info, unit_name):
             return info, kind
     if cat_idx and cat_idx.get("common") \
+            and not cat_idx.get("no_common") \
             and not _excluded(cat_idx["common"], unit_name):
         return cat_idx["common"], "전형공통"
     return None, "미확인"
@@ -1067,6 +1161,12 @@ def _subtracks_from_sections(auto, cat):
     out, seen = [], set()
     for sec in (scope.get("sections") or []):
         if sec.get("category") != cat:
+            continue
+        #  완화로 겨우 찾은 절로는 나누지 않는다. 요강이 번호를 붙여
+        #  뚜렷이 나눠 적은 절만 근거가 된다 — 그러지 않으면 사람이
+        #  읽어 적어 둔 값이 밀려난다(충북대·충남대·경희대 학과 115개가
+        #  느슨해졌다 — 실측).
+        if sec.get("loose"):
             continue
         nm = (sec.get("track") or "").strip()
         if not nm or nm in seen or nm not in trs:
@@ -1350,6 +1450,37 @@ def convert_auto(auto):
         if u.get("category"):
             all_units[nm]["cats"].add(u["category"])
 
+    #  이름 표기가 표와 본문에서 조금씩 다르다(★·공백·가운뎃점 종류).
+    _units_by_norm = {}
+    for nm2, b2 in all_units.items():
+        for key in (_norm_unit(nm2), _base_unit(nm2)):
+            if key:
+                _units_by_norm.setdefault(key, b2)
+
+    #  모집인원 표가 **어느 전형으로 뽑는지 숫자로** 말한다. 본문 글에는
+    #  칼럼이 없어 그걸 알 수 없는 요강이 많다 — 아주대 논술은 본문으로
+    #  1학과인데 표에는 34학과다(실측). 논술·실기는 학과가 검출되지
+    #  않으면 목록에서 빠지므로, 학생이 갈 수 있는 곳을 못 본다.
+    #
+    #  값이 **1명 이상**인 열만 센다. 0 이나 '-' 는 그 전형으로 안
+    #  뽑는다는 뜻이고, 그게 이 표를 쓰는 이유다.
+    for cnm, rec in (auto.get("unit_counts") or {}).items():
+        base = all_units.get(cnm)
+        if base is None:
+            for key in (_norm_unit(cnm), _base_unit(cnm)):
+                if key:
+                    base = _units_by_norm.get(key)
+                    if base is not None:
+                        break
+        if base is None:
+            continue
+        for hdr, n in ((rec or {}).get("by") or {}).items():
+            if not isinstance(n, int) or n < 1:
+                continue
+            c = _su_cat_like(re.sub(r"#\d+$", "", hdr))
+            if c and c != "정시":
+                base["cats"].add(c)
+
     # 입결(합격컷) 색인 — 학과명 기준
     ipg = {ip["unit"]: ip for ip in auto.get("ipgyeol_detected", [])}
 
@@ -1383,6 +1514,12 @@ def convert_auto(auto):
             #  주장하지 않는 이유는 `_su_none_cats` 주석에 있다. 규칙을
             #  못 찾았을 때만 바꾼다 — 찾은 규칙은 건드리지 않는다.
             nrows = su_none.get(cat)
+            #  학과마다 기준이 갈리는 유형은 '없음' 도 붙이지 않는다.
+            #  대표값을 안 쓰기로 한 자리에 '없음' 이 들어오면 최저가
+            #  있는 학과를 없다고 말한다(충남대 교과 49학과 — 실측).
+            #  진짜 미확인으로 두어 학생이 요강을 보게 한다.
+            if (cat_idx or {}).get("no_common"):
+                nrows = None
             #  요강이 '모든 모집단위에서 없음' 이라고 **범위를 명시**한
             #  경우는 규칙을 찾았어도 주장한다. 건국대(글로컬)은
             #  '의예과를 제외한 모든 모집단위에서 수능최저 없음' 이라고
