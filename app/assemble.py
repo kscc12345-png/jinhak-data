@@ -1269,8 +1269,13 @@ def _track_criteria(tmethods, gyoinfo, cat):
     # 이 카테고리에 속하는 전형들 중 신뢰도 높은 것 우선.
     # confidence 가 'low' 면 요소가 잘려 나간 것이라 쓰지 않는다
     # (일부만 보여주면 나머지 전형요소를 놓친 것처럼 오해를 부른다).
+    #  **이름 낱말 또는 유형**으로 모은다. 차례로 보면, 이름으로 걸린
+    #  것이 하나라도 있을 때 유형으로 찾는 갈래로 못 간다 — 그 하나가
+    #  좁은 전형이면 후보가 비어 자리표시자가 나간다(가천대 교과에
+    #  '학생부우수자 교과 100%' 가 있는데 '농어촌(교과)' 만 걸렸다).
     cands = [(k, v) for k, v in (tmethods or {}).items()
-             if any(w in k for w in words) and v.get("confidence") != "low"]
+             if (any(w in k for w in words) or v.get("cat") == cat)
+             and v.get("confidence") != "low"]
     if not cands:
         #  이름 낱말로는 못 찾는 전형이 있다 — 고려대(세종) '크림슨인재',
         #  '미래인재' 에는 '종합' 이라는 낱말이 없다. 그런데 요강 절
