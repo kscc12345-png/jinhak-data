@@ -1445,7 +1445,7 @@ def convert_auto(auto):
     src_file = auto.get("file")
     idx = _rule_index(auto)
     su_none = _su_none_cats(auto)
-    cats = auto.get("categories_detected", []) or []
+    cats = list(auto.get("categories_detected", []) or [])
     # 표에서 읽은 모집인원 격자 {학과: {"total":n, "by":{전형머리글:n}}}
     #  이름이 ★·공백·가운뎃점 때문에 안 맞는 일이 많아 정규화 색인을 쓴다
     ucounts = _count_index(auto.get("unit_counts") or {})
@@ -1547,6 +1547,16 @@ def convert_auto(auto):
                 #  근거는 표여야 한다. 본문에서 온 유형과 섞으면 안 된다.
                 base.setdefault("grid_cats", set()).add(c)
 
+    #  **유형 목록에 모집인원 표가 말하는 유형을 더한다.**
+    #  `categories_detected` 는 본문 글에서 만든다. 성균관대는 거기에
+    #  논술이 없어서(표에는 논술위주 24학과, 최저 규칙도 전형요소도
+    #  있는데) 논술 전형이 아예 안 만들어졌다 — 학생이 볼 수 없었다.
+    #  표는 숫자로 말하므로 더 센 근거다.
+    for _b in all_units.values():
+        for _c in (_b.get("grid_cats") or ()):
+            if _c not in cats:
+                cats.append(_c)
+
     # 입결(합격컷) 색인 — 학과명 기준
     ipg = {ip["unit"]: ip for ip in auto.get("ipgyeol_detected", [])}
 
@@ -1627,12 +1637,19 @@ def convert_auto(auto):
             # 읽어서 채운 최저가 있으면 그것이 최우선(원문 첨부 필수).
             # 세부 전형이면 **그 전형의 규칙만** 본다 — 다른 세부 전형의
             # 기준을 끌어오면 애초에 나눈 이유가 없어진다.
-            if sub is not None:
-                crule, csrc = _curated_pick([sub], nm, college,
-                                            base.get("campus") or "")
+            _campus = base.get("campus") or ""
+            if sub is not None and ((sub.get("rules") or sub.get("all"))):
+                #  사람이 **이 세부 전형에** 적어 뒀으면 그것만 쓴다 —
+                #  다른 세부 전형의 기준을 끌어오면 나눈 뜻이 없어진다.
+                crule, csrc = _curated_pick([sub], nm, college, _campus)
             else:
+                #  세부 전형에 적힌 것이 없으면 **유형 값**을 쓴다.
+                #  그건 남의 세부 전형 것이 아니라 그 유형에 대한 사람의
+                #  답이다. 버리면 공주대 교과 91학과가 미확인이 된다
+                #  (모집인원 표의 전형 열을 읽어 세부 전형이 생기자
+                #   사람이 채운 108건이 통째로 떨어졌다 — 실측).
                 crule, csrc = _curated_suneung(curated, cat, nm, college,
-                                               base.get("campus") or "")
+                                               _campus)
             if crule:
                 rule, kind = crule, "요강확인"
                 rpage = csrc.get("page")
