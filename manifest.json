@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-11 19:34",
-  "version": "1.9.1",
-  "version_code": 191,
+  "generated": "2026-09-11 20:15",
+  "version": "1.9.2",
+  "version_code": 192,
   "min_version_code": 100,
   "mobile_version": "1.1.0",
   "mobile_version_code": 2,
   "mobile_min_version_code": 1,
-  "app_version": "367c231caf3a",
+  "app_version": "b74947e3b381",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -21,8 +21,8 @@
     "suneung.py",
     "version.json"
   ],
-  "admin_version": "1.4.1",
-  "admin_version_code": 141,
+  "admin_version": "1.4.2",
+  "admin_version_code": 142,
   "admin_min_version_code": 100,
   "universities": [
     {
@@ -173,7 +173,7 @@
       "code": "snu",
       "name": "서울대학교",
       "year": 2027,
-      "units": 206
+      "units": 207
     },
     {
       "code": "uos",
