@@ -102,9 +102,21 @@ def _extract_subunits(nm):
 
 
 def _root_unit(nm):
-    """학과/학부/전공/어과 접미사를 정규화한 어근."""
+    """학과/학부/전공/어과/대학 접미사를 정규화한 어근.
+
+    '대학' 을 떼는 이유 — 어디가가 모집단위를 **단과대학 이름**으로
+    적는 대학이 있다. 요강은 학과 이름으로 적는다. 안 떼면 같은
+    모집단위가 둘로 실린다(실측).
+
+        고려대 교과  경영학과(요강, 최저 있음, 입결 없음)
+                   경영대학(어디가, 최저 '모름', 입결 1.48)
+        서울대 종합  간호학과 ↔ 간호대학
+
+    학생은 한쪽에서 최저를, 다른 쪽에서 입결을 본다. 떼면 붙는다 —
+    새로 붙는 쌍 5개, 잘못 뭉치는 것 0건(실측).
+    """
     s = _base_unit(nm)
-    for suffix in ("어과", "학과", "학부", "전공", "계열"):
+    for suffix in ("어과", "학과", "학부", "전공", "계열", "대학"):
         if s.endswith(suffix) and len(s) > len(suffix) + 1:
             return s[:-len(suffix)]
     return s
@@ -235,7 +247,7 @@ def _split_eodiga_tracks(univ, cat, unit_recs, yr):
             univ.setdefault("tracks", []).append(tr)
 
 
-def _merge_eodiga_units(univ, ed, yr):
+def _merge_eodiga_units(univ, ed, yr, used=None):
     """어디가에만 있고 모집요강엔 없는 학과를 해당 전형(교과/종합)에 추가.
     (모집요강 학과 추출이 부실한 대학에서 어디가 학과가 누락되지 않게)"""
     have, track_by_cat = {}, {}
@@ -263,6 +275,11 @@ def _merge_eodiga_units(univ, ed, yr):
             k_norm = _norm_unit(nm)
             k_base = _base_unit(nm)
             if k_norm in have.get(cat, set()) or k_base in have.get(cat, set()):
+                continue
+            #  이름은 다른데 이미 어느 학과에 붙은 것이다(어근·별칭으로
+            #  찾았다). 또 만들면 같은 모집단위가 두 줄이 된다 —
+            #  한쪽엔 최저가, 다른 쪽엔 입결이 있는 채로.
+            if used and all(id(r) in used for r in recs):
                 continue
             if tr is None:
                 tr = {"id": f"eodiga_{cat}", "name": f"{cat}전형", "category": cat,
@@ -323,6 +340,7 @@ def _pick_eodiga(recs, track_name):
 def _apply_eodiga(univ, ed):
     """대학 dict의 각 학과에 어디가 결과(전형별) 부착 + 대표 70%컷 설정."""
     yr = ed.get("year")
+    used = set()          # 실제로 어느 학과에 붙은 결과 행(id)
     for t in univ.get("tracks", []):
         want = _CAT2TRACK.get(t.get("category"))
         for u in t.get("units", []):
@@ -331,6 +349,12 @@ def _apply_eodiga(univ, ed):
                 continue
             # 전형(track) 일치분만
             same = [r for r in recs if not want or r.get("track") == want]
+            if want:
+                #  전형이 맞는 행만 '썼다' 고 친다. 논술·실기는
+                #  `_CAT2TRACK` 에 없어 이름만 맞으면 교과·종합 행까지
+                #  가져다 쓴다 — 그것까지 치면 진짜 교과 줄이 사라진다.
+                for r in same:
+                    used.add(id(r))
             u["eodiga"] = same or recs
             u["eodiga_year"] = yr
             # 정원(count) 누락 시 어디가 모집인원으로 보완 (P3-1)
@@ -370,7 +394,7 @@ def _apply_eodiga(univ, ed):
             u["eodiga_score70"] = best.get("score70")
             u["eodiga_comp"] = best.get("competition")
     # 어디가에만 있는 학과 추가(모집요강 부실 대학 대응)
-    _merge_eodiga_units(univ, ed, yr)
+    _merge_eodiga_units(univ, ed, yr, used)
     # 정시 track 생성(어디가 정시 백분위 결과 기반)
     jt = _jeongsi_track(ed.get("jeongsi") or {}, yr)
     if jt:
@@ -1065,10 +1089,55 @@ _HDR_NOISE = re.compile(r"수시\s*모집(?:인원)?|정원\s*내|정원\s*외|�
                         r"|\(정원\s*[내외]\)|전년\s*대비|명$|\d+$")
 
 
+_BR_OPEN = "([（［"
+_BR_CLOSE = ")]）］"
+_BR_EMPTY = re.compile("[" + re.escape(_BR_OPEN) + r"]\s*[" + re.escape(_BR_CLOSE) + "]")
+#  맨 앞의 [○○캠퍼스] — 전형 이름이 아니라 어디서 뽑는지다.
+_BR_CAMPUS = re.compile("^[" + re.escape(_BR_OPEN) + r"]\s*"
+                        r"([^" + re.escape(_BR_CLOSE) + r"]*캠퍼스)\s*"
+                        "[" + re.escape(_BR_CLOSE) + "]\\s*")
+
+
+def _strip_unpaired(t):
+    """짝 없는 괄호만 앞뒤에서 뗀다.
+
+    통째로 떼면 '학생부종합(SW인재)' 가 '학생부종합(SW인재' 가 된다 —
+    학생 화면의 탭 이름이다(실측 8건).
+    """
+    for _ in range(8):
+        if not t:
+            break
+        op = sum(t.count(c) for c in _BR_OPEN)
+        cl = sum(t.count(c) for c in _BR_CLOSE)
+        if t[0] in _BR_CLOSE or (t[0] in _BR_OPEN and op > cl):
+            t = t[1:].strip()
+            continue
+        if t[-1] in _BR_OPEN or (t[-1] in _BR_CLOSE and cl > op):
+            t = t[:-1].strip()
+            continue
+        break
+    return t
+
+
 def _hdr_name(h):
     """격자 머리글을 화면에 쓸 전형 이름으로 다듬는다."""
     t = _HDR_TAIL.sub("", str(h or "")).strip()
-    t = _HDR_NOISE.sub("", t).strip(" ()[]·-_")
+    t = _HDR_NOISE.sub("", t)
+    #  껍데기만 남은 괄호는 통째로 뺀다 — '…특성화고교졸업자[정원외]'
+    #  에서 '정원외' 가 빠지면 '[]' 만 남는다(실측).
+    t = _BR_EMPTY.sub("", t)
+    #  괄호는 짝이 안 맞을 때만 뗀다. `.strip(" ()[]...")` 로 통째로
+    #  떼면 이름의 일부인 닫는 괄호가 사라진다.
+    t = _strip_unpaired(t.strip(" \u00b7-_"))
+    #  캠퍼스는 뒤로. 떼지는 않는다 — 건양대는 두 캠퍼스가 같은 이름의
+    #  전형을 따로 쓴다(`교과일반[교과]` 17과·16과). 떼면 같은 이름이
+    #  되어 `_tidy_subtracks` 가 합치고 두 캠퍼스 학과가 섞인다.
+    m = _BR_CAMPUS.match(t)
+    if m and len(t) > len(m.group(0)):
+        #  가운뎃점·쉼표·빗금은 쓰지 않는다. `_tidy_subtracks` 가
+        #  그런 이름을 '전형 여럿을 나열한 줄' 로 보고 버린다 —
+        #  건양대 전형 여덟 개가 다섯 개가 됐다(실측).
+        t = "%s (%s)" % (t[m.end():].strip(), m.group(1).strip())
     return t
 
 
