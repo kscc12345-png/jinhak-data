@@ -753,6 +753,13 @@ _SPECIAL = [
 ]
 
 
+#  제목이 조사로 이어지면 문장이지 전형 이름이 아니다.
+#  콜론은 거르지 않는다 — 충북대·한밭대는 전형 이름을
+#  '학생부교과 : 학생부교과(지역인재전형)' 처럼 적는다.
+_SU_SENTENCE = re.compile(
+    r"[가-힣](?:은|는|을|를|이|가|에서|으로|하여|통해|위한|따라)\s")
+
+
 def _su_none_cats(auto):
     """요강이 '최저 없음' 이라고 적은 전형들 — 유형별로 모아 둔다.
 
@@ -774,6 +781,13 @@ def _su_none_cats(auto):
     out = {}
     for row in (scope.get("none") or []):
         if row.get("narrow"):
+            continue
+        #  제목이 문장이면 전형 이름이 아니다 — 그런 근거로 '없음' 을
+        #  주장하지 않는다. 공주대 36쪽 종합 설명 '교과성적을 정량적으로
+        #  반영하지 않고 정성평가함' 이 '교과성적' 때문에 교과로 붙어,
+        #  요강이 '일반·자율전공·지역인재전형' 이라고 콕 집어 적은 최저를
+        #  가진 자율전공학부가 '없음' 이 됐다(실측).
+        if _SU_SENTENCE.search((row.get("track") or "").strip()):
             continue
         cat = row.get("category")
         if cat:
