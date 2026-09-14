@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-14 08:55",
-  "version": "1.9.6",
-  "version_code": 196,
+  "generated": "2026-09-14 10:28",
+  "version": "1.9.7",
+  "version_code": 197,
   "min_version_code": 100,
   "mobile_version": "1.1.0",
   "mobile_version_code": 2,
   "mobile_min_version_code": 1,
-  "app_version": "9e75a265701d",
+  "app_version": "a45f8d3ea0b8",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -21,8 +21,8 @@
     "suneung.py",
     "version.json"
   ],
-  "admin_version": "1.4.6",
-  "admin_version_code": 146,
+  "admin_version": "1.4.7",
+  "admin_version_code": 147,
   "admin_min_version_code": 100,
   "universities": [
     {

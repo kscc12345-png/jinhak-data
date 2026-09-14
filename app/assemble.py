@@ -760,6 +760,13 @@ _SU_SENTENCE = re.compile(
     r"[가-힣](?:은|는|을|를|이|가|에서|으로|하여|통해|위한|따라)\s")
 
 
+def _has_interview(tr, ev):
+    """이 전형에 면접이 있는가 — 전형요소나 면접 평가항목으로 본다."""
+    if any("면접" in str(k) for k in (tr.get("method") or {})):
+        return True
+    return bool((ev.get("면접") or {}).get("items"))
+
+
 def _su_none_cats(auto):
     """요강이 '최저 없음' 이라고 적은 전형들 — 유형별로 모아 둔다.
 
@@ -1913,6 +1920,14 @@ def convert_auto(auto):
         for tr in tracks:
             ev = evals.get(tr.get("category"))
             if ev:
+                #  전형요소에 면접이 없으면 면접 방식은 떼고 붙인다.
+                #  '면접' 이 든 쪽이면 그 쪽 유형에 붙는데, 블라인드
+                #  면접 안내처럼 대학 공통으로 한 번 적는 글이 많다.
+                #  전형요소는 '논술 100' 이라 해 놓고 그 아래 면접
+                #  방식을 보여 주면 스스로 어긋난 말이 된다(실측 13건).
+                if ev.get("interview_format") and not _has_interview(tr, ev):
+                    ev = {k: v for k, v in ev.items()
+                          if k != "interview_format"}
                 tr["evaluation"] = ev
             tb = ties.get(tr.get("category"))
             if tb:
