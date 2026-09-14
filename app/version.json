@@ -1,7 +1,7 @@
 {
-  "version": "1.9.7",
-  "version_code": 197,
+  "version": "1.9.8",
+  "version_code": 198,
   "min_version_code": 100,
-  "updated_at": "2026-09-14 10:28",
-  "note": "면접 방식(몇 분·몇 명·어떤 면접)을 26%에서 70%로"
+  "updated_at": "2026-09-14 12:01",
+  "note": "동점자 처리 기준을 글에서도 읽는다 - 21%에서 46%"
 }
