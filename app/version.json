@@ -1,7 +1,7 @@
 {
-  "version": "1.9.8",
-  "version_code": 198,
+  "version": "1.9.9",
+  "version_code": 199,
   "min_version_code": 100,
-  "updated_at": "2026-09-14 12:01",
-  "note": "동점자 처리 기준을 글에서도 읽는다 - 21%에서 46%"
+  "updated_at": "2026-09-14 13:33",
+  "note": "서울대 평가내용을 글에서 읽는다 - 요강이 붙인 이름표를 닻으로"
 }
