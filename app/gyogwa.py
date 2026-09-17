@@ -251,6 +251,42 @@ def reflected_avg(student_gyogwa, subjects, univ=None, weights=None,
     return num / den, used
 
 
+def group_avg(groups, student_gyogwa, univ=None, ignore_units=False):
+    """묶음마다 상위 N과목을 골라 평균을 내고, 묶음 비율대로 합친다.
+
+    배재대는 【국어·영어·수학】 에서 상위 5과목 50%,
+    【한국사·사회·과학·제2외국어·한문】 에서 상위 5과목 50% 다.
+    교과군 하나마다 고르는 selection_rules 로는 '세 교과군을 합쳐 상위
+    5과목' 을 적을 수 없다.
+
+    성적이 없는 묶음은 **빼고 남은 묶음의 비율로** 본다 — 제2외국어를
+    안 배운 학생 때문에 나머지 묶음까지 버릴 일은 아니다.
+    """
+    num = den = 0.0
+    used = []
+    for blk in groups or []:
+        subs = expand_subjects(student_gyogwa, blk.get("subjects") or [])
+        n = blk.get("n")
+        if n:
+            #  '우수한 과목 순 5과목' — 교과군을 가리지 않고 성적 순이다
+            subs = take_top(student_gyogwa, subs, int(n), univ=univ)
+        a, u = reflected_avg(student_gyogwa, subs, univ=univ,
+                             ignore_units=ignore_units)
+        w = blk.get("weight", 1)
+        try:
+            w = float(w)
+        except (TypeError, ValueError):
+            w = 0.0
+        if a is None or w <= 0:
+            continue
+        num += a * w
+        den += w
+        used += u
+    if den == 0:
+        return None, used
+    return num / den, used
+
+
 def scale_score(avg_grade, scale):
     """등급환산표(scale: {"1":100,"2":99,...})로 점수 환산(선형보간)."""
     if avg_grade is None or not scale:
@@ -278,24 +314,31 @@ def evaluate(track, student_gyogwa, univ=None, unit=None):
     #  계열·모집단위마다 반영교과가 다른 대학이 있다(동국대 인문=사회 /
     #  자연=과학). 이 모집단위에 맞는 설정을 먼저 고른다.
     g = spec_for(g, unit)
-    #  '전 교과' 인 대학(서울시립대 논술·고교추천)은 학생 과목 전부를 본다.
-    if g.get("all_subjects"):
-        subs = all_subjects(student_gyogwa, g.get("exclude_areas"))
-    else:
-        #  반영교과(교과군) → 학생이 가진 과목으로 펼친다.
-        #  이걸 안 하면 학생의 선택과목(물리학Ⅰ·생활과윤리 …)이 통째로 빠진다.
-        subs = expand_subjects(student_gyogwa, g.get("subjects") or [])
-    if "selection_rules" in g:
-        subs = apply_selection_rules(student_gyogwa, subs, g["selection_rules"], univ=univ)
-    #  '상위 N과목만' 은 교과군을 가리지 않고 성적 순으로 고른다
-    if g.get("top_n"):
-        subs = take_top(student_gyogwa, subs, g["top_n"], univ=univ)
-    avg, used = reflected_avg(student_gyogwa, subs, univ=univ,
-                              weights=g.get("weights"),
+    #  묶음마다 상위 N과목을 골라 비율대로 합치는 대학(배재대)
+    if g.get("groups"):
+        avg, used = group_avg(g["groups"], student_gyogwa, univ=univ,
                               ignore_units=bool(g.get("ignore_units")))
+    else:
+        #  '전 교과' 인 대학(서울시립대 논술·고교추천)은 학생 과목 전부를 본다.
+        if g.get("all_subjects"):
+            subs = all_subjects(student_gyogwa, g.get("exclude_areas"))
+        else:
+            #  반영교과(교과군) → 학생이 가진 과목으로 펼친다.
+            #  이걸 안 하면 학생의 선택과목(물리학Ⅰ·생활과윤리 …)이 통째로 빠진다.
+            subs = expand_subjects(student_gyogwa, g.get("subjects") or [])
+        if "selection_rules" in g:
+            subs = apply_selection_rules(student_gyogwa, subs, g["selection_rules"], univ=univ)
+        #  '상위 N과목만' 은 교과군을 가리지 않고 성적 순으로 고른다
+        if g.get("top_n"):
+            subs = take_top(student_gyogwa, subs, g["top_n"], univ=univ)
+        avg, used = reflected_avg(student_gyogwa, subs, univ=univ,
+                                  weights=g.get("weights"),
+                                  ignore_units=bool(g.get("ignore_units")))
     if avg is None:
         want = "전 교과" if g.get("all_subjects") else \
-            ", ".join(g.get("subjects") or [])
+            ", ".join(g.get("subjects")
+                      or [x for blk in (g.get("groups") or [])
+                          for x in (blk.get("subjects") or [])])
         return {"applies": True, "avg_grade": None, "score": None,
                 "detail": f"반영교과({want}) 성적 미입력"}
     scale = g.get("scale")
