@@ -1140,6 +1140,19 @@ def _strip_unpaired(t):
     return t
 
 
+def _dedupe_head(t):
+    """앞머리가 곧바로 되풀이되면 한 번만 남긴다.
+
+    모집인원 표 머리글은 칸을 이어 붙여 만든다. 한밭대는 유형 칸과
+    전형명 칸에 같은 말이 적혀 있어 '학생부교과학생부교과（일반）' 가
+    된다. 바로 쓴 이름에서는 앞머리가 그대로 겹치는 일이 없다.
+    """
+    for n in range(len(t) // 2, 1, -1):
+        if t[:n] == t[n:2 * n]:
+            return t[n:]
+    return t
+
+
 def _hdr_name(h):
     """격자 머리글을 화면에 쓸 전형 이름으로 다듬는다."""
     t = _HDR_TAIL.sub("", str(h or "")).strip()
@@ -1149,7 +1162,7 @@ def _hdr_name(h):
     t = _BR_EMPTY.sub("", t)
     #  괄호는 짝이 안 맞을 때만 뗀다. `.strip(" ()[]...")` 로 통째로
     #  떼면 이름의 일부인 닫는 괄호가 사라진다.
-    t = _strip_unpaired(t.strip(" \u00b7-_"))
+    t = _dedupe_head(_strip_unpaired(t.strip(" \u00b7-_")))
     #  캠퍼스는 뒤로. 떼지는 않는다 — 건양대는 두 캠퍼스가 같은 이름의
     #  전형을 따로 쓴다(`교과일반[교과]` 17과·16과). 떼면 같은 이름이
     #  되어 `_tidy_subtracks` 가 합치고 두 캠퍼스 학과가 섞인다.
