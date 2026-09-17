@@ -1,12 +1,12 @@
 {
-  "generated": "2026-09-17 14:30",
-  "version": "2.0.2",
-  "version_code": 202,
+  "generated": "2026-09-17 17:33",
+  "version": "2.1.0",
+  "version_code": 210,
   "min_version_code": 100,
   "mobile_version": "1.10.1",
   "mobile_version_code": 8,
   "mobile_min_version_code": 1,
-  "app_version": "ee7da57b7bbb",
+  "app_version": "3da8156d91e0",
   "app_modules": [
     "assemble.py",
     "cryptobox.py",
@@ -155,7 +155,7 @@
       "code": "paichai",
       "name": "배재대학교",
       "year": 2027,
-      "units": 79
+      "units": 311
     },
     {
       "code": "sch",
