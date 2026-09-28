@@ -416,6 +416,10 @@ def eval_unit(univ, track, unit, student):
         "profile_source": unit.get("profile_source"),
         "grade_weights": univ.get("grade_weights"),
         "suneung_groups": univ.get("suneung_groups"),
+        #  정시에서 이 대학이 무엇을 보는가 — 영역별 반영비율·활용지표·
+        #  영어 등급점수. 지금까지 정시는 어디가 70%컷만 보여 줬고 요강은
+        #  한 줄도 안 봤다. 같은 백분위라도 대학마다 전혀 다른 자리에 선다.
+        "js_spec": (univ.get("js_spec") if is_jeongsi else None),
         "auto": bool(univ.get("auto") or track.get("auto")),
         "confidence": (rule or {}).get("confidence") if rule else None,
         "band": band, "band_score": bscore, "band_basis": bbasis,

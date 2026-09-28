@@ -1009,7 +1009,7 @@ _CAT_TRACK_WORDS = {
 }
 
 
-def _curated_criteria(curated, cat):
+def _curated_criteria(curated, cat, track=None):
     """사람(또는 AI)이 요강을 **읽어서** 채운 값. 파서 결과보다 우선한다.
 
     왜 이 경로가 필요한가 —
@@ -1025,6 +1025,18 @@ def _curated_criteria(curated, cat):
     c = ((curated or {}).get(cat) or {})
     m = c.get("method")
     g = c.get("gyogwa")
+    #  같은 유형 안에서도 전형마다 방법이 다를 수 있다(우송대는
+    #  교과중심이 12과목, 교과면접이 6과목이다). 전형 이름에
+    #  열쇠가 들어 있으면 그쪽을 쓴다. 긴 열쇠를 먼저 본다 —
+    #  '교과' 가 '교과면접' 을 가로채면 안 된다.
+    bt = c.get("by_track")
+    if track and isinstance(bt, dict):
+        for key in sorted(bt, key=len, reverse=True):
+            if key and key in (track or ""):
+                node = bt[key] or {}
+                m = node.get("method") or m
+                g = node.get("gyogwa") or g
+                break
     if not m and not g:
         return None, None
     method = dict(m) if m else None
@@ -1830,6 +1842,10 @@ def convert_auto(auto):
                     #  (사람이 읽어 채운 값은 그대로 우선한다)
                     sub_m, sub_g = _subtrack_criteria(
                         tmethods, gyoinfo, cat, sub.get("name"))
+                    #  사람이 전형별로 적어 둔 것이 있으면 그것이
+                    #  유형 공통값보다 앞선다
+                    cur_m, cur_g = _curated_criteria(
+                        curated, cat, sub.get("name"))
                     tracks.append({
                         "id": "auto_%s_%d" % (cat, i),
                         "name": sub.get("name") or ("%s전형" % cat),
