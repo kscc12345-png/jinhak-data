@@ -11,7 +11,8 @@ engine.py — 학생 프로필 × 대학 데이터 → 전형별 평가 결과.
   "categories": ["교과","종합"]    # 관심 전형유형(비우면 전체)
 }
 """
-import os, sys
+import os
+import re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import model, suneung, gyogwa, assemble, features
 from math import exp as _exp, sqrt as _sqrt
@@ -352,17 +353,76 @@ def _student_pct_avg(student):
     return sum(vals) / len(vals)
 
 
-def jeongsi_band(unit, student):
-    """정시: 학생 평균백분위 vs 70%컷 평균백분위."""
-    js = unit.get("js") or {}
-    cut = js.get("pct_avg70")
-    savg = _student_pct_avg(student)
-    if cut is None:
-        return ("판정보류", None, "전년도 백분위 미제출")
-    if savg is None:
-        return ("판정보류", None, f"70%컷 평균백분위 {cut} (수능 백분위 입력 시 판정)")
-    diff = savg - cut  # +면 학생이 우수(백분위 높음)
-    basis = f"평균백분위 {savg:.1f} vs 70%컷 {cut} ({diff:+.1f})"
+#  정시 가중 판정에 쓰는 영역 — 영어는 뺀다(컷이 등급이라 백분위와
+#  섞을 수 없다). 한국사도 대개 감점이라 뺀다.
+_JS_AREAS = ("국어", "수학", "탐구")
+
+
+def js_pick_ratio(js_spec, unit):
+    """이 모집단위에 걸리는 영역별 반영비율 한 덩어리.
+
+    대학은 계열마다 다른 비율을 쓴다(한양대 자연 수학 40% · 인문 30%).
+    어느 것을 쓸지 못 고르면 **아무것도 돌려주지 않는다** — 틀린 비율로
+    계산하느니 예전 방식으로 물러나는 편이 낫다.
+
+    계열만으로는 모자란다. 아주대는 덩어리가 '자연1'·'자연2' 둘이라
+    계열이 '자연' 이어도 안 좁혀지고, 중앙대는 한 덩어리가 '계열 구분
+    없이 점수를 반영' 이라 모든 학과에 걸린다. 네 눈을 차례로 본다.
+    """
+    blocks = [b for b in ((js_spec or {}).get("ratios") or [])
+              if isinstance(b.get("areas"), dict)]
+    if not blocks:
+        return None, None
+    if len(blocks) == 1:
+        return blocks[0], (blocks[0].get("scope") or "")
+
+    def scope_of(b):
+        return b.get("scope") or ""
+
+    #  ① 학과 이름  ② 단과대학 이름
+    for key in ("unit", "college"):
+        nm = (unit.get(key) or "").strip()
+        if len(nm) < 2:
+            continue
+        hit = [b for b in blocks if nm in scope_of(b)]
+        if len(hit) == 1:
+            return hit[0], scope_of(hit[0])
+
+    #  ③ 계열
+    gy = (unit.get("gyeyeol") or "").strip()
+    want = "자연" if "자연" in gy else ("인문" if "인문" in gy else None)
+    if want:
+        hit = [b for b in blocks if want in scope_of(b)]
+        if len(hit) == 1:
+            return hit[0], scope_of(hit[0])
+
+    #  ④ 계열을 안 가르는 덩어리가 딱 하나면 그것이 모두에게 걸린다
+    allk = [b for b in blocks
+            if re.search(u"계열\\s*구분\\s*없|전\\s*모집단위|공통",
+                         scope_of(b))]
+    if len(allk) == 1:
+        return allk[0], scope_of(allk[0])
+    return None, None
+
+def _weighted(vals, ratio):
+    """Σ(값 × 비율) / Σ(비율). 값이 둘 미만이면 None."""
+    num = den = 0.0
+    used = 0
+    for a in _JS_AREAS:
+        v, w = vals.get(a), ratio.get(a)
+        if not isinstance(v, (int, float)) or not isinstance(w, (int, float)):
+            continue
+        if w <= 0:
+            continue
+        num += v * w
+        den += w
+        used += 1
+    if used < 2 or den <= 0:
+        return None
+    return num / den
+
+
+def _band_of(diff, basis):
     if diff >= 3:
         return ("안정", 90, basis)
     if diff >= 0:
@@ -372,6 +432,46 @@ def jeongsi_band(unit, student):
     if diff >= -6:
         return ("위험", 35, basis)
     return ("매우위험", 15, basis)
+
+
+def jeongsi_band(unit, student, js_spec=None):
+    """정시 판정.
+
+    **되도록 대학이 정한 비율로 견준다.** 어디가 영역별 70%컷과 요강
+    반영비율이 둘 다 있으면 양쪽을 같은 비율로 가중한다. 하나라도
+    없거나 어느 계열 비율인지 못 고르면 예전처럼 단순 평균으로 본다.
+    """
+    js = unit.get("js") or {}
+    b = student.get("baekbunwi") or {}
+
+    #  ── 가중 판정 ────────────────────────────────────────────────
+    blk, scope = js_pick_ratio(js_spec, unit)
+    if blk:
+        ratio = blk.get("pct") or blk.get("areas") or {}
+        cut_vals = {"국어": js.get("pct_kor70"),
+                    "수학": js.get("pct_math70"),
+                    "탐구": js.get("pct_tam70")}
+        sv = _weighted(b, ratio)
+        cv = _weighted(cut_vals, ratio)
+        if sv is not None and cv is not None:
+            diff = sv - cv
+            hint = " · ".join("%s %g%%" % (a, ratio[a])
+                              for a in _JS_AREAS if a in ratio)
+            basis = ("%s 비율로 가중 — 내 %.1f vs 70%%컷 %.1f (%+.1f) "
+                     "[%s · 영어는 컷이 등급이라 뺐습니다]"
+                     % (scope or "이 대학", sv, cv, diff, hint))
+            return _band_of(diff, basis)
+
+    #  ── 물러난 자리 — 단순 평균 ──────────────────────────────────
+    cut = js.get("pct_avg70")
+    savg = _student_pct_avg(student)
+    if cut is None:
+        return ("판정보류", None, "전년도 백분위 미제출")
+    if savg is None:
+        return ("판정보류", None, f"70%컷 평균백분위 {cut} (수능 백분위 입력 시 판정)")
+    diff = savg - cut  # +면 학생이 우수(백분위 높음)
+    basis = f"평균백분위 {savg:.1f} vs 70%컷 {cut} ({diff:+.1f})"
+    return _band_of(diff, basis)
 
 
 def eval_unit(univ, track, unit, student):
@@ -384,7 +484,7 @@ def eval_unit(univ, track, unit, student):
         gy_ok = (unit["gyeyeol"] == student["gyeyeol"])
     is_jeongsi = (track.get("category") == "정시") or (unit.get("admission_type") == "정시")
     if is_jeongsi:
-        band, bscore, bbasis = jeongsi_band(unit, student)
+        band, bscore, bbasis = jeongsi_band(unit, student, univ.get("js_spec"))
     else:
         band, bscore, bbasis = admission_band(su, gy, student, unit)
     return {
