@@ -365,9 +365,11 @@ def js_pick_ratio(js_spec, unit):
     어느 것을 쓸지 못 고르면 **아무것도 돌려주지 않는다** — 틀린 비율로
     계산하느니 예전 방식으로 물러나는 편이 낫다.
 
-    계열만으로는 모자란다. 아주대는 덩어리가 '자연1'·'자연2' 둘이라
-    계열이 '자연' 이어도 안 좁혀지고, 중앙대는 한 덩어리가 '계열 구분
-    없이 점수를 반영' 이라 모든 학과에 걸린다. 네 눈을 차례로 본다.
+    눈을 차례로 보는 방식은 한 눈에서 여럿이 걸리면 포기했다. 아주대
+    간호학과(자연)는 '자연1 … 간호대학' 과 '인문1 … 간호대학(일반전형4)'
+    둘 다 단과대학이 맞아 못 골랐다. 계열까지 같이 보면 분명한데도.
+
+    그래서 눈마다 점수를 주고 **가장 높은 하나가 유일할 때만** 쓴다.
     """
     blocks = [b for b in ((js_spec or {}).get("ratios") or [])
               if isinstance(b.get("areas"), dict)]
@@ -376,33 +378,30 @@ def js_pick_ratio(js_spec, unit):
     if len(blocks) == 1:
         return blocks[0], (blocks[0].get("scope") or "")
 
-    def scope_of(b):
-        return b.get("scope") or ""
-
-    #  ① 학과 이름  ② 단과대학 이름
-    for key in ("unit", "college"):
-        nm = (unit.get(key) or "").strip()
-        if len(nm) < 2:
-            continue
-        hit = [b for b in blocks if nm in scope_of(b)]
-        if len(hit) == 1:
-            return hit[0], scope_of(hit[0])
-
-    #  ③ 계열
     gy = (unit.get("gyeyeol") or "").strip()
     want = "자연" if "자연" in gy else ("인문" if "인문" in gy else None)
-    if want:
-        hit = [b for b in blocks if want in scope_of(b)]
-        if len(hit) == 1:
-            return hit[0], scope_of(hit[0])
+    nm = (unit.get("unit") or "").strip()
+    col = (unit.get("college") or "").strip()
 
-    #  ④ 계열을 안 가르는 덩어리가 딱 하나면 그것이 모두에게 걸린다
-    allk = [b for b in blocks
-            if re.search(u"계열\\s*구분\\s*없|전\\s*모집단위|공통",
-                         scope_of(b))]
-    if len(allk) == 1:
-        return allk[0], scope_of(allk[0])
-    return None, None
+    best, second, pick = -1, -1, None
+    for b in blocks:
+        sc = b.get("scope_match") or b.get("scope") or ""
+        pt = 0
+        if len(nm) >= 2 and nm in sc:
+            pt += 3
+        if len(col) >= 2 and col in sc:
+            pt += 2
+        if want and want in sc:
+            pt += 1
+        if re.search(u"계열\\s*구분\\s*없|전\\s*모집단위", sc):
+            pt += 1
+        if pt > best:
+            second, best, pick = best, pt, b
+        elif pt > second:
+            second = pt
+    if best <= 0 or best == second:
+        return None, None
+    return pick, (pick.get("scope") or "")
 
 def _weighted(vals, ratio):
     """Σ(값 × 비율) / Σ(비율). 값이 둘 미만이면 None."""
@@ -420,6 +419,77 @@ def _weighted(vals, ratio):
     if used < 2 or den <= 0:
         return None
     return num / den
+
+
+def js_pick_shape(js_spec, unit):
+    """고정 비율이 없을 때 쓸 선택형·무리별 우수순 한 덩어리.
+
+    고정형과 같은 이유로, 어느 것을 쓸지 못 고르면 돌려주지 않는다.
+    """
+    picks = [p for p in ((js_spec or {}).get("picks") or [])
+             if p.get("kind") in ("선택", "무리별우수순")]
+    if len(picks) != 1:
+        return None, None
+    p = picks[0]
+    if p.get("kind") == "선택":
+        pk = p.get("pick") or {}
+        #  순위별 비율이 없어도, '정해진 무리 안에서 상위 N개' 면 그
+        #  N개를 같은 비율로 본다(한국체대 '국·수·영 3과목 중 상위
+        #  2과목'). 어떻게 매기는지 아예 모르는 것과는 다르다.
+        if not (pk.get("ranks") or pk.get("same") or pk.get("pool_n")):
+            return None, None
+    return p, (p.get("scope") or p.get("kind") or "")
+
+
+def _ranked(vals, n, ranks):
+    """높은 순으로 앞 N개에 순위 비율을 곱한다.
+
+    대학이 하는 그대로다 — 잘한 영역을 골라 쓴다. 값이 N개보다 적으면
+    있는 만큼만 쓰되 둘은 있어야 한다.
+    """
+    have = sorted((v for v in vals if isinstance(v, (int, float))),
+                  reverse=True)
+    if len(have) < 2:
+        return None
+    k = min(n or len(have), len(have))
+    take = have[:k]
+    ws = (ranks or [])[:k] or [1.0] * k
+    if len(ws) < k:
+        ws = ws + [ws[-1]] * (k - len(ws))
+    num = sum(v * w for v, w in zip(take, ws))
+    den = sum(ws)
+    return (num / den) if den else None
+
+
+def _by_shape(shape, vals):
+    """선택형·무리별 우수순 한 덩어리로 값 하나를 낸다."""
+    kind = shape.get("kind")
+    if kind == "선택":
+        pk = shape.get("pick") or {}
+        n = pk.get("n") or 2
+        ranks = pk.get("ranks")
+        if not ranks and (pk.get("same") or pk.get("pool_n")):
+            ranks = [1.0] * n
+        return _ranked([vals.get(a) for a in _JS_AREAS], n, ranks)
+    if kind == "무리별우수순":
+        num = den = 0.0
+        used = 0
+        for g in (shape.get("groups") or []):
+            pool = [a for a in (g.get("pool") or []) if a in _JS_AREAS]
+            ranks = g.get("ranks") or []
+            if not pool or not ranks:
+                continue
+            have = sorted((vals.get(a) for a in pool
+                           if isinstance(vals.get(a), (int, float))),
+                          reverse=True)
+            for v, w in zip(have, ranks):
+                num += v * w
+                den += w
+                used += 1
+        if used < 2 or den <= 0:
+            return None
+        return num / den
+    return None
 
 
 def _band_of(diff, basis):
@@ -460,6 +530,25 @@ def jeongsi_band(unit, student, js_spec=None):
             basis = ("%s 비율로 가중 — 내 %.1f vs 70%%컷 %.1f (%+.1f) "
                      "[%s · 영어는 컷이 등급이라 뺐습니다]"
                      % (scope or "이 대학", sv, cv, diff, hint))
+            return _band_of(diff, basis)
+
+    #  ── 고정 비율이 없으면 선택형으로 ────────────────────────────
+    #  목원대처럼 '잘한 N개를 골라 순위별 비율' 로 뽑는 대학이다.
+    #  이 모양이야말로 가중이 크게 갈린다 — 한 영역만 아주 잘하면
+    #  그것만 뽑아 쓰기 때문이다.
+    shape, sname = js_pick_shape(js_spec, unit)
+    if shape:
+        cut_vals = {"국어": js.get("pct_kor70"),
+                    "수학": js.get("pct_math70"),
+                    "탐구": js.get("pct_tam70")}
+        sv = _by_shape(shape, b)
+        cv = _by_shape(shape, cut_vals)
+        if sv is not None and cv is not None:
+            diff = sv - cv
+            basis = ("%s — 잘한 영역을 골라 셈해서 내 %.1f vs 70%%컷 %.1f "
+                     "(%+.1f) [%s · 영어는 컷이 등급이라 뺐습니다]"
+                     % (sname or "이 대학", sv, cv, diff,
+                        (shape.get("text") or "")[:70]))
             return _band_of(diff, basis)
 
     #  ── 물러난 자리 — 단순 평균 ──────────────────────────────────
