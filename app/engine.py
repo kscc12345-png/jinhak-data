@@ -357,6 +357,30 @@ def _student_pct_avg(student):
 #  섞을 수 없다). 한국사도 대개 감점이라 뺀다.
 _JS_AREAS = ("국어", "수학", "탐구")
 
+#  예체능 학과인가 — 이름이나 단과대학으로 가린다
+_JS_ARTS = re.compile(u"음악|미술|체육|무용|디자인|연극|영화|조소|회화|"
+                      u"조각|작곡|성악|기악|관현악|실용음악|스포츠|"
+                      u"예술|공예|도예|사진|만화|애니메이션|뮤지컬|연기")
+#  이 덩어리가 **예체능 전용**이라고 적었나
+_JS_ARTSONLY = re.compile(u"예\\s*체\\s*능|예능계|체능계|음악계|미술계|"
+                          u"체육계|무용계")
+def _js_gye(scope):
+    """이 덩어리는 어느 계열 것인가 — 줄 이름에 **먼저** 나오는 말."""
+    i, j = (scope or "").find("자연"), (scope or "").find("인문")
+    if i < 0 and j < 0:
+        return None
+    if i < 0:
+        return "인문"
+    if j < 0:
+        return "자연"
+    return "자연" if i < j else "인문"
+
+
+#  모집단위를 가릴 수 있는 이름이 적혀 있나(표 제목뿐이면 아니다)
+_JS_NAMED = re.compile(u"대학|학부|학과|전공|계열|중심|인문|자연|예체능|"
+                       u"예능|체능|의예|한의예|치의예|약학|간호|교육과|"
+                       u"디자인|음악|미술|무용|연극|영화|유형")
+
 
 def js_pick_ratio(js_spec, unit):
     """이 모집단위에 걸리는 영역별 반영비율 한 덩어리.
@@ -382,23 +406,46 @@ def js_pick_ratio(js_spec, unit):
     want = "자연" if "자연" in gy else ("인문" if "인문" in gy else None)
     nm = (unit.get("unit") or "").strip()
     col = (unit.get("college") or "").strip()
+    arts = bool(_JS_ARTS.search(nm + " " + col))
 
     best, second, pick = -1, -1, None
+    plain = [b for b in blocks
+             if not _JS_NAMED.search(b.get("scope_match")
+                                     or b.get("scope") or "")]
     for b in blocks:
         sc = b.get("scope_match") or b.get("scope") or ""
+        #  **예체능 비율은 예체능 학과의 것이다.** 충남대 '음악계
+        #  국60 수20 탐20' 이 경상대학 학생에게 걸리면 안 된다.
+        if _JS_ARTSONLY.search(sc) and not arts:
+            continue
         pt = 0
         if len(nm) >= 2 and nm in sc:
             pt += 3
         if len(col) >= 2 and col in sc:
             pt += 2
-        if want and want in sc:
-            pt += 1
+        #  **계열은 줄 이름에서 먼저 나오는 말로 본다.** 그냥 들어
+        #  있는지만 보면 동국대 '자연계열 / 컴퓨터·AI학부(인문)' 가
+        #  인문 학과에도 걸려 인문 덩어리와 비겼다. 괄호 안의 '(인문)'
+        #  은 그 줄이 인문 것이라는 뜻이 아니라 그 학과를 가리키는
+        #  꼬리표다. 줄의 계열은 **앞에** 적힌다.
+        if want and _js_gye(b.get("scope") or sc) == want:
+            pt += 2
+        if arts and _JS_ARTSONLY.search(sc):
+            pt += 2
         if re.search(u"계열\\s*구분\\s*없|전\\s*모집단위", sc):
             pt += 1
         if pt > best:
             second, best, pick = best, pt, b
         elif pt > second:
             second = pt
+    #  **이름을 하나도 안 적은 덩어리가 꼭 하나면 그것이 기본이다.**
+    #  서울대는 모집단위마다 국100·수120·탐80 을 그대로 다시 적고,
+    #  디자인과만 한 번 100·100·100 이라고 적는다. 디자인과가 아닌
+    #  학생에게는 이름 없는 쪽이 그 대학의 규칙이다. 나머지가 모두
+    #  이름을 달고 있을 때만 쓴다 — 연세대처럼 둘 다 이름이 있으면
+    #  물러나는 편이 낫다.
+    if best <= 0 and len(plain) == 1 and len(blocks) > 1:
+        return plain[0], (plain[0].get("scope") or "")
     if best <= 0 or best == second:
         return None, None
     return pick, (pick.get("scope") or "")

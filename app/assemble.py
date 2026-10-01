@@ -2127,7 +2127,58 @@ def load_all():
                     u["ipgyeol_naesin"] = v["cut"]
                     u["ipgyeol_low"] = v.get("low")
                     u["ipgyeol_type"] = "수동 입력"
+    _fill_jeongsi_college(univs)
     return univs
+
+
+def _fill_jeongsi_college(univs):
+    """정시 학과줄에 **단과대학을 적어 준다** — 수시 쪽에서 빌려서.
+
+    정시 학과줄은 어디가 결과에서 만든다. 어디가는 학과 이름만 주고
+    단과대학은 안 준다. 그런데 정시 요강은 반대로 **단과대학으로만**
+    비율을 적는다 — 경희대 '인문: 문과대학, 외국어대학', 아주대
+    '자연1: 공과대학, … 간호대학'. 그래서 간호학과 학생에게 어느
+    비율을 써야 하는지 못 골랐고, 1,287줄 중 286줄이 그 때문에 단순
+    평균으로 물러나 있었다.
+
+    같은 대학 수시 쪽에는 요강에서 읽은 단과대학이 적혀 있다. 학과
+    이름이 같으면 같은 단과대학이다. **다만 한 학과 이름이 두
+    단과대학에 걸리면 빌려오지 않는다** — 틀린 단과대학은 틀린
+    비율로 이어진다.
+    """
+    for d in univs.values():
+        book, bad = {}, set()
+        for t in (d.get("tracks") or []):
+            if t.get("category") == "정시":
+                continue
+            for u in (t.get("units") or []):
+                col = (u.get("college") or "").strip()
+                if not col:
+                    continue
+                for key in (_norm_unit(u.get("unit") or ""),
+                            _base_unit(u.get("unit") or "")):
+                    if not key:
+                        continue
+                    if book.setdefault(key, col) != col:
+                        bad.add(key)
+        for t in (d.get("tracks") or []):
+            if t.get("category") != "정시":
+                continue
+            for u in (t.get("units") or []):
+                if u.get("college"):
+                    continue
+                for key in (_norm_unit(u.get("unit") or ""),
+                            _base_unit(u.get("unit") or "")):
+                    if key and key not in bad and book.get(key):
+                        u["college"] = book[key]
+                        #  **단과대학을 알면 계열이 보인다.** 학과
+                        #  이름만으로는 '간호학과'·'자율전공학부' 가
+                        #  공통으로 남는데, 요강은 계열로 비율을
+                        #  가른다. 1,287줄 중 362줄이 공통이었다.
+                        if u.get("gyeyeol") in (None, "", "공통"):
+                            u["gyeyeol"] = _guess_gyeyeol(
+                                u.get("unit") or "", book[key])
+                        break
 
 
 if __name__ == "__main__":
