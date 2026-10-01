@@ -364,6 +364,20 @@ _JS_ARTS = re.compile(u"음악|미술|체육|무용|디자인|연극|영화|조�
 #  이 덩어리가 **예체능 전용**이라고 적었나
 _JS_ARTSONLY = re.compile(u"예\\s*체\\s*능|예능계|체능계|음악계|미술계|"
                           u"체육계|무용계")
+#  **'대학수학능력시험' 안에 '대학' 이 들어 있다.** 이름이 붙었는지
+#  보는 눈이 이 말에 걸리면, 표 제목뿐인 덩어리도 '이름 있음' 이 되어
+#  그 대학 전체의 규칙을 아무에게도 못 쓴다(건국대 글로컬 22줄).
+#  '(단, 의예과는 표준점수 반영)' 같은 곁말도 모집단위 이름이 아니다.
+_JS_NOTNAME = re.compile(u"대\\s*학\\s*수\\s*학\\s*능\\s*력\\s*시\\s*험"
+                         u"|수\\s*학\\s*능\\s*력\\s*시\\s*험"
+                         u"|\\(\\s*단[,，][^)]*\\)")
+
+
+def _js_isnamed(sc):
+    """이 덩어리가 모집단위를 가릴 이름을 달고 있나."""
+    return bool(_JS_NAMED.search(_JS_NOTNAME.sub(u" ", sc or u"")))
+
+
 def _js_gye(scope):
     """이 덩어리는 어느 계열 것인가 — 줄 이름에 **먼저** 나오는 말."""
     i, j = (scope or "").find("자연"), (scope or "").find("인문")
@@ -397,10 +411,17 @@ def js_pick_ratio(js_spec, unit):
     """
     blocks = [b for b in ((js_spec or {}).get("ratios") or [])
               if isinstance(b.get("areas"), dict)]
+    return _js_best(blocks, unit)
+
+
+def _js_best(blocks, unit):
+    """여러 덩어리 가운데 이 모집단위에 걸리는 하나. 못 고르면 None.
+
+    고정 비율에도 선택형에도 같은 눈을 쓴다 — 어느 쪽이든 물음은
+    똑같다. '요강의 이 줄이 이 학생의 줄인가.'
+    """
     if not blocks:
         return None, None
-    if len(blocks) == 1:
-        return blocks[0], (blocks[0].get("scope") or "")
 
     gy = (unit.get("gyeyeol") or "").strip()
     want = "자연" if "자연" in gy else ("인문" if "인문" in gy else None)
@@ -410,8 +431,7 @@ def js_pick_ratio(js_spec, unit):
 
     best, second, pick = -1, -1, None
     plain = [b for b in blocks
-             if not _JS_NAMED.search(b.get("scope_match")
-                                     or b.get("scope") or "")]
+             if not _js_isnamed(b.get("scope_match") or b.get("scope") or "")]
     for b in blocks:
         sc = b.get("scope_match") or b.get("scope") or ""
         #  **예체능 비율은 예체능 학과의 것이다.** 충남대 '음악계
@@ -444,7 +464,15 @@ def js_pick_ratio(js_spec, unit):
     #  학생에게는 이름 없는 쪽이 그 대학의 규칙이다. 나머지가 모두
     #  이름을 달고 있을 때만 쓴다 — 연세대처럼 둘 다 이름이 있으면
     #  물러나는 편이 낫다.
-    if best <= 0 and len(plain) == 1 and len(blocks) > 1:
+    #
+    #  **덩어리가 하나뿐이어도 묻지 않고 쓰면 안 된다.** 예전에는
+    #  하나면 그냥 썼다. 그런데 요강에서 건져 낸 유일한 덩어리가
+    #  '의예과' 것인 대학이 있다 — 성균관대 33줄, 순천향대 51줄,
+    #  건양대 16줄이 의예과·의학과 비율로 재어지고 있었다. 나머지
+    #  모집단위의 규칙(우수 2개 영역, 최고 3개 각 33.3%)은 모양이
+    #  아예 달라서, 그 하나를 모두에게 씌우면 전혀 다른 값이 나온다.
+    #  이름이 없는 덩어리(= 그 대학 전체의 규칙)일 때만 그냥 쓴다.
+    if best <= 0 and len(plain) == 1:
         return plain[0], (plain[0].get("scope") or "")
     if best <= 0 or best == second:
         return None, None
@@ -473,19 +501,27 @@ def js_pick_shape(js_spec, unit):
 
     고정형과 같은 이유로, 어느 것을 쓸지 못 고르면 돌려주지 않는다.
     """
-    picks = [p for p in ((js_spec or {}).get("picks") or [])
-             if p.get("kind") in ("선택", "무리별우수순")]
-    if len(picks) != 1:
+    picks = []
+    for p in ((js_spec or {}).get("picks") or []):
+        if p.get("kind") == "선택":
+            pk = p.get("pick") or {}
+            #  순위별 비율이 없어도, '정해진 무리 안에서 상위 N개' 면 그
+            #  N개를 같은 비율로 본다(한국체대 '국·수·영 3과목 중 상위
+            #  2과목'). 어떻게 매기는지 아예 모르는 것과는 다르다.
+            if not (pk.get("ranks") or pk.get("same") or pk.get("pool_n")):
+                continue
+        elif p.get("kind") not in ("무리별우수순", "고정+무리별우수순"):
+            continue
+        picks.append(p)
+    #  **선택형도 여럿일 수 있다.** 성균관대는 한 표 안에서 계열마다
+    #  무리가 다르다 — 자유전공·사회과학은 국·수 중 45·35, 의상·
+    #  자연과학은 수·탐 중 40·30. 예전에는 '하나뿐일 때만' 썼기에
+    #  성균관대 33줄이 통째로 물러나 있었다. 고정 비율과 같은 눈으로
+    #  고른다.
+    p, scope = _js_best(picks, unit)
+    if p is None:
         return None, None
-    p = picks[0]
-    if p.get("kind") == "선택":
-        pk = p.get("pick") or {}
-        #  순위별 비율이 없어도, '정해진 무리 안에서 상위 N개' 면 그
-        #  N개를 같은 비율로 본다(한국체대 '국·수·영 3과목 중 상위
-        #  2과목'). 어떻게 매기는지 아예 모르는 것과는 다르다.
-        if not (pk.get("ranks") or pk.get("same") or pk.get("pool_n")):
-            return None, None
-    return p, (p.get("scope") or p.get("kind") or "")
+    return p, (scope or p.get("kind") or "")
 
 
 def _ranked(vals, n, ranks):
@@ -518,9 +554,19 @@ def _by_shape(shape, vals):
         if not ranks and (pk.get("same") or pk.get("pool_n")):
             ranks = [1.0] * n
         return _ranked([vals.get(a) for a in _JS_AREAS], n, ranks)
-    if kind == "무리별우수순":
+    if kind in ("무리별우수순", "고정+무리별우수순"):
         num = den = 0.0
         used = 0
+        #  **고정으로 정해진 영역은 그대로 곱한다.** 성균관대
+        #  자유전공계열은 국·수 중 잘한 순서로 45·35 를 주고,
+        #  탐구 10 · 영어 10 은 고정이다. 영어는 컷이 등급이라
+        #  우리 셈에서 빠진다(_JS_AREAS).
+        for a, w in (shape.get("fixed") or {}).items():
+            v = vals.get(a)
+            if a in _JS_AREAS and isinstance(v, (int, float)) and w > 0:
+                num += v * w
+                den += w
+                used += 1
         for g in (shape.get("groups") or []):
             pool = [a for a in (g.get("pool") or []) if a in _JS_AREAS]
             ranks = g.get("ranks") or []
