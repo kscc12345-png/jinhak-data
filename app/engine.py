@@ -597,6 +597,34 @@ def _band_of(diff, basis):
     return ("매우위험", 15, basis)
 
 
+def _js_eng_note(js, student, weight=None):
+    """영어는 셈에서 빼는 대신 **따로 적는다**.
+
+    영어 컷은 등급이고 국·수·탐 컷은 백분위라 한 자로 섞을 수 없다.
+    그렇다고 아무 말도 안 하면, 영어를 10~30% 보는 대학에서 학생이
+    자기 영어가 유리한지 불리한지 모른 채 숫자만 본다.
+
+    요강의 등급 환산표로 점수를 만들어 섞는 길도 있었다. 그런데
+    대학마다 만점이 다르고(건국대 200점, 단국대 100점, 충남대 감점)
+    비율과 어떻게 맞물리는지도 다르다. 0~100으로 펴서 넣으면 그
+    대학의 셈이 아닌 우리 셈이 된다. **없는 정밀도를 지어내느니
+    등급 둘을 나란히 보여 주는 편이 낫다.**
+    """
+    my = (student.get("suneung") or {}).get("영어")
+    cut = js.get("eng70")
+    if not isinstance(my, (int, float)) or not isinstance(cut, (int, float)):
+        return ""
+    gap = cut - my                      # 등급은 낮을수록 좋다
+    if gap > 0:
+        how = "%d등급 앞섭니다" % gap
+    elif gap < 0:
+        how = "%d등급 뒤집니다" % (-gap)
+    else:
+        how = "같습니다"
+    w = (" · 이 대학 영어 반영 %g%%" % weight) if weight else ""
+    return "영어는 내 %g등급 · 70%%컷 %g등급으로 %s%s" % (my, cut, how, w)
+
+
 def jeongsi_band(unit, student, js_spec=None):
     """정시 판정.
 
@@ -620,9 +648,11 @@ def jeongsi_band(unit, student, js_spec=None):
             diff = sv - cv
             hint = " · ".join("%s %g%%" % (a, ratio[a])
                               for a in _JS_AREAS if a in ratio)
+            eng = _js_eng_note(js, student, ratio.get("영어"))
             basis = ("%s 비율로 가중 — 내 %.1f vs 70%%컷 %.1f (%+.1f) "
-                     "[%s · 영어는 컷이 등급이라 뺐습니다]"
-                     % (scope or "이 대학", sv, cv, diff, hint))
+                     "[%s · 영어는 셈에서 뺐습니다%s]"
+                     % (scope or "이 대학", sv, cv, diff, hint,
+                        (" — " + eng) if eng else ""))
             return _band_of(diff, basis)
 
     #  ── 고정 비율이 없으면 선택형으로 ────────────────────────────
@@ -638,10 +668,13 @@ def jeongsi_band(unit, student, js_spec=None):
         cv = _by_shape(shape, cut_vals)
         if sv is not None and cv is not None:
             diff = sv - cv
+            eng = _js_eng_note(js, student,
+                               (shape.get("fixed") or {}).get("영어"))
             basis = ("%s — 잘한 영역을 골라 셈해서 내 %.1f vs 70%%컷 %.1f "
-                     "(%+.1f) [%s · 영어는 컷이 등급이라 뺐습니다]"
+                     "(%+.1f) [%s · 영어는 셈에서 뺐습니다%s]"
                      % (sname or "이 대학", sv, cv, diff,
-                        (shape.get("text") or "")[:70]))
+                        (shape.get("text") or "")[:70],
+                        (" — " + eng) if eng else ""))
             return _band_of(diff, basis)
 
     #  ── 물러난 자리 — 단순 평균 ──────────────────────────────────
@@ -652,7 +685,9 @@ def jeongsi_band(unit, student, js_spec=None):
     if savg is None:
         return ("판정보류", None, f"70%컷 평균백분위 {cut} (수능 백분위 입력 시 판정)")
     diff = savg - cut  # +면 학생이 우수(백분위 높음)
-    basis = f"평균백분위 {savg:.1f} vs 70%컷 {cut} ({diff:+.1f})"
+    eng = _js_eng_note(js, student)
+    basis = (f"평균백분위 {savg:.1f} vs 70%컷 {cut} ({diff:+.1f})"
+             + (f" [{eng}]" if eng else ""))
     return _band_of(diff, basis)
 
 
